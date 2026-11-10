@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
-import type { Role } from "./model";
+import { ROLES, type Role } from "./model";
 
 export const publicConfig = () => ({
   url: process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -52,13 +52,18 @@ export async function requireStudent(next = "/dashboard") {
 
 export const staffSession = cache(async () => {
   const current = await session();
-  if (!current) return null;
-  const { data } = await current.db.from("user_roles").select("role").eq("user_id", current.user.id).maybeSingle();
-  return data ? { ...current, role: data.role as Role } : null;
+  if (!current?.user.email_confirmed_at) return null;
+  // Resolve the role only for the verified account. Staff actions keep its RLS-scoped client.
+  const directory = privilegedDb() ?? current.db;
+  const { data, error } = await directory.from("user_roles").select("role").eq("user_id", current.user.id).maybeSingle();
+  if (error) console.error("Staff role lookup failed", { code: error.code });
+  if (!data || !ROLES.includes(data.role)) return null;
+  return { ...current, role: data.role as Role };
 });
 
 export async function requireStaff(allowed?: Role[]) {
   const current = await staffSession();
-  if (!current || (allowed && !allowed.includes(current.role))) redirect("/admin/access");
+  if (!current) redirect("/admin/access");
+  if (allowed && !allowed.includes(current.role)) redirect("/admin/access?restricted=1");
   return current;
 }
