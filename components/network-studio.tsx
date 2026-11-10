@@ -15,6 +15,7 @@ import { StudioScreen } from "./studio-screen";
 import { BandwidthPlanner } from "./bandwidth-planner";
 import { equipmentImage, equipmentName, type StudioEquipment } from "@/lib/studio-equipment";
 import type { NetworkViewProps } from "@/lib/network-view";
+import type { QuoteContact } from "@/lib/quote-pdf";
 
 const NetworkScene=dynamic(()=>import("./network-scene"),{ssr:false,
   loading:()=> <div className="network-three-canvas network-three-loading" role="status">Loading the Three.js network…</div>,
@@ -60,8 +61,8 @@ function newPosition(devices: NetworkDevice[]) {
   return { x: 50, y: 50 };
 }
 
-export function NetworkStudio({ prices, whatsapp, accountId, reviewPlan, equipment }: {
-  prices: NetworkPrices; whatsapp: string; accountId: string | null; reviewPlan?: NetworkPlan; equipment: StudioEquipment[];
+export function NetworkStudio({ prices, whatsapp, accountId, reviewPlan, equipment, quoteContact }: {
+  prices: NetworkPrices; whatsapp: string; accountId: string | null; reviewPlan?: NetworkPlan; equipment: StudioEquipment[];quoteContact:QuoteContact;
 }) {
   const [plan, setPlan] = useState(reviewPlan ?? DEFAULT_NETWORK);
   const [ready, setReady] = useState(Boolean(reviewPlan));
@@ -167,7 +168,7 @@ export function NetworkStudio({ prices, whatsapp, accountId, reviewPlan, equipme
     setStatus("");
     try {
       const [{ createNetworkPdf },{ downloadQuote }] = await Promise.all([import("@/lib/network-pdf"),import("@/lib/quote-pdf")]);
-      downloadQuote(await createNetworkPdf(plan,prices,equipment),"obsidian-network-quote.pdf");
+      downloadQuote(await createNetworkPdf(plan,prices,equipment,quoteContact),"obsidian-network-quote.pdf");
       setStatus("Your PDF quote is ready.");
     } catch { setStatus("The PDF could not be created. Try again or share the estimate on WhatsApp."); }
     finally { setBusy(null); inFlight.current = false; }

@@ -1,6 +1,6 @@
-import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import { PDFDocument, rgb, StandardFonts, type PDFFont, type PDFPage } from "pdf-lib";
 import { deviceLabel, ENVIRONMENTS, estimateNetwork, networkNaira, simulateNetwork, type NetworkPlan, type NetworkPrices } from "./network";
-import { fitPdfText, quoteDate, quoteHeader, quoteLogo, QUOTE_NAVY, QUOTE_SIZE } from "./quote-pdf";
+import { fitPdfText, quoteDate, quoteHeader, quoteLogo, QUOTE_NAVY, QUOTE_SIZE, wrapPdfText, type QuoteContact } from "./quote-pdf";
 import type { StudioEquipment } from "./studio-equipment";
 
 const A4 = QUOTE_SIZE;
@@ -12,8 +12,69 @@ const paper = rgb(.94, .97, .99);
 const white = rgb(1, 1, 1);
 const left = 37;
 const right = A4[0] - left;
+const footerRule = 116;
+const scheduleFloor = footerRule + 10;
+const headerHeight = 23;
+const columns = [
+  { title:"Link",x:37 }, { title:"From",x:66 }, { title:"To",x:187 },
+  { title:"Connection",x:308 }, { title:"Distance",x:393 }, { title:"Status",x:451 },
+] as const;
 
-export async function createNetworkPdf(plan: NetworkPlan, prices: NetworkPrices, equipment: StudioEquipment[] = [], logoBytes?: Uint8Array) {
+type ScheduleRow = {
+  id:string;from:string[];to:string[];connection:string;distance:string;
+  status:string;note:string[];tone:"green"|"amber"|"neutral";height:number;
+};
+
+function connectionTable(page:PDFPage,top:number,rows:ScheduleRow[],regular:PDFFont,bold:PDFFont) {
+  const text=(value:string,x:number,y:number,size:number,font:PDFFont,color=ink)=>
+    page.drawText(value,{x,y,size,font,color});
+  const tones = {
+    green:{ fill:rgb(.89,.96,.92),text:rgb(.12,.39,.28) },
+    amber:{ fill:rgb(.99,.92,.83),text:rgb(.53,.30,.11) },
+    neutral:{ fill:rgb(.91,.94,.97),text:rgb(.29,.38,.48) },
+  };
+  page.drawRectangle({x:left,y:top-headerHeight,width:right-left,height:headerHeight,color:navy});
+  columns.forEach(({title,x})=>text(title,x+7,top-15,8.3,bold,white));
+  let cursor=top-headerHeight;
+  rows.forEach((row,index)=>{
+    const bottom=cursor-row.height;
+    if (index%2===0) page.drawRectangle({x:left,y:bottom,width:right-left,height:row.height,color:paper});
+    page.drawLine({start:{x:left,y:bottom},end:{x:right,y:bottom},thickness:.45,color:rgb(.83,.88,.92)});
+    const y=cursor-16;
+    text(row.id,columns[0].x+7,y,8.2,bold,muted);
+    row.from.forEach((line,i)=>text(line,columns[1].x+7,y-i*10,8.6,bold));
+    row.to.forEach((line,i)=>text(line,columns[2].x+7,y-i*10,8.6,bold));
+    text(row.connection,columns[3].x+7,y,8.6,regular);
+    text(row.distance,columns[4].x+7,y,8.6,bold);
+    const tone=tones[row.tone];
+    const pillX=columns[5].x+7;
+    const pillWidth=bold.widthOfTextAtSize(row.status,7.7)+12;
+    page.drawRectangle({x:pillX,y:y-4,width:pillWidth,height:13,color:tone.fill});
+    text(row.status,pillX+6,y,7.7,bold,tone.text);
+    row.note.forEach((line,i)=>text(line,pillX,y-14-i*9,7.3,regular,muted));
+    cursor=bottom;
+  });
+}
+
+function contactFooter(page:PDFPage,contact:QuoteContact,number:string,regular:PDFFont,bold:PDFFont) {
+  page.drawLine({start:{x:left,y:footerRule},end:{x:right,y:footerRule},thickness:1,color:teal});
+  page.drawText("Obsidian Research",{x:left,y:99,size:10.2,font:bold,color:ink});
+  page.drawText(number,{x:right-regular.widthOfTextAtSize(number,8),y:99,size:8,font:regular,color:muted});
+  page.drawText("ADDRESS",{x:left,y:83,size:7.4,font:bold,color:muted});
+  wrapPdfText(contact.address,regular,8.3,right-left-62,3).forEach((line,index)=>
+    page.drawText(line,{x:left+62,y:83-index*10,size:8.3,font:regular,color:ink}));
+  const details=[
+    { label:"PHONE",value:contact.phone,x:left,width:129 },
+    { label:"EMAIL",value:contact.email,x:left+145,width:197 },
+    { label:"WEBSITE",value:contact.website.replace(/^https?:\/\//i,"").replace(/\/$/,""),x:left+358,width:163 },
+  ];
+  for (const {label,value,x,width} of details) {
+    page.drawText(label,{x,y:46,size:7.4,font:bold,color:muted});
+    page.drawText(fitPdfText(value,regular,8.3,width),{x,y:32,size:8.3,font:regular,color:ink});
+  }
+}
+
+export async function createNetworkPdf(plan: NetworkPlan, prices: NetworkPrices, equipment: StudioEquipment[], contact:QuoteContact, logoBytes?: Uint8Array) {
   const doc = await PDFDocument.create();
   doc.setTitle("Obsidian Research - Network design and budget");
   doc.setAuthor("Obsidian Research");
@@ -58,7 +119,7 @@ export async function createNetworkPdf(plan: NetworkPlan, prices: NetworkPrices,
   print(`${plan.site} x ${plan.site} m  |  ${ENVIRONMENTS[plan.environment]}  |  ${plan.voucher ? "Voucher portal requested" : "Voucher portal off"}`,
     left, y - 66, 9, false, muted);
 
-  const mapSize = 178;
+  const mapSize = 164;
   const mapBottom = y - 76 - mapSize;
   const position = (x: number, y: number) => ({ x: left + x * mapSize / 100, y: mapBottom + (100 - y) * mapSize / 100 });
   page.drawRectangle({ x: left, y: mapBottom, width: mapSize, height: mapSize, color: paper, borderColor: teal, borderWidth: .7 });
@@ -77,12 +138,26 @@ export async function createNetworkPdf(plan: NetworkPlan, prices: NetworkPrices,
     print(fitPdfText(deviceLabel(device,equipment),regular,8.5,145), left + mapSize + 16 + (index >= 8 ? 154 : 0), mapBottom + mapSize - 9 - (index % 8) * 15, 8.5);
   });
   print("Site layout is schematic. Dashed lines represent wireless bridges.", left, mapBottom - 14, 8.5, false, muted);
-  print("Confirm measured coverage, clearances, compatibility and pricing with Obsidian Research.", left, 34, 9, true);
-
-  function linkDescription({ link, metres, warning }: (typeof simulation.links)[number]) {
-    const name = `${deviceLabel(nodes.get(link.from)!,equipment)} to ${deviceLabel(nodes.get(link.to)!,equipment)}`;
-    const distance = link.kind === "bridge" ? `LiteBeam pair / ${link.km} km` : `Ethernet / ${metres} m`;
-    return { name, status: `${distance}  |  ${warning ?? (simulation.routes.has(link.to) ? "Reachable in simulation" : "No upstream traffic")}` };
+  const rows=simulation.links.map(({link,metres,warning},index):ScheduleRow=>{
+    const from=wrapPdfText(deviceLabel(nodes.get(link.from)!,equipment),bold,8.6,107,2);
+    const to=wrapPdfText(deviceLabel(nodes.get(link.to)!,equipment),bold,8.6,107,2);
+    const reachable=simulation.routes.has(link.to);
+    const note=warning ? wrapPdfText(warning,regular,7.3,94,2) : [];
+    return {
+      id:String(index+1).padStart(2,"0"),from,to,connection:link.kind==="bridge" ? "LiteBeam bridge" : "Ethernet",
+      distance:link.kind==="bridge" ? `${link.km} km` : `${metres} m`,
+      status:warning ? "Review required" : reachable ? "Reachable" : "No upstream",
+      note,tone:warning ? "amber" : reachable ? "green" : "neutral",
+      height:Math.max(26,13+Math.max(from.length,to.length)*10,note.length ? 26+note.length*9 : 0),
+    };
+  });
+  const inlineTop=mapBottom-56;
+  const inline=rows.length>0 && inlineTop-headerHeight-rows.reduce((sum,row)=>sum+row.height,0)>=scheduleFloor;
+  if (inline) {
+    print("Connection schedule",left,mapBottom-39,13,true);
+    connectionTable(page,inlineTop,rows,regular,bold);
+  } else if (rows.length) {
+    print("See the connection schedule for link distances and simulation status.",left,mapBottom-37,9,false,muted);
   }
 
   if (extraParts.length) {
@@ -94,25 +169,23 @@ export async function createNetworkPdf(plan: NetworkPlan, prices: NetworkPrices,
       schedule.drawText(part.total===null ? "Quote required" : `NGN ${networkNaira(part.total)}`,{x:430,y:row,font:regular,size:9,color:ink});
     });
   }
-  if (simulation.links.length > 5) {
-    const detail = doc.addPage(A4);
-    quoteHeader(detail,logo,bold,"Connection schedule","Network Studio / topology and reachability");
-    let row = 695;
-    for (const connection of simulation.links) {
-      const { name, status } = linkDescription(connection);
-      detail.drawText(fitPdfText(name,bold,11,right-left), { x: left, y: row, font: bold, size: 11, color: ink });
-      detail.drawText(status, { x: left, y: row - 14, font: regular, size: 9, color: muted });
-      row -= 39;
+  if (!inline) {
+    const top=671;
+    let index=0;
+    while (index<rows.length) {
+      const detail=doc.addPage(A4);
+      quoteHeader(detail,logo,bold,index===0 ? "Connection schedule" : "Connection schedule continued","Network Studio / topology and reachability");
+      detail.drawText("Verify cable routes, wireless clearance and hardware compatibility during the site survey.",{
+        x:left,y:691,size:9,font:regular,color:muted,
+      });
+      const start=index;
+      let available=top-headerHeight-scheduleFloor;
+      while (index<rows.length && rows[index].height<=available) available-=rows[index++].height;
+      connectionTable(detail,top,rows.slice(start,index),regular,bold);
     }
-  } else if (simulation.links.length) {
-    print("Connection schedule", left, mapBottom - 39, 13, true);
-    simulation.links.forEach((connection, index) => {
-      const { name, status } = linkDescription(connection);
-      const row = mapBottom - 57 - index * 23;
-      print(fitPdfText(name,bold,9,right-left), left, row, 9, true);
-      print(status, left, row - 11, 8.5, false, muted);
-    });
   }
+  const pages=doc.getPages();
+  pages.forEach((sheet,index)=>contactFooter(sheet,contact,`Page ${index+1} of ${pages.length}`,regular,bold));
   const bytes = await doc.save();
   return new Blob([new Uint8Array(bytes)], { type: "application/pdf" });
 }

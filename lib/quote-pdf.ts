@@ -2,6 +2,7 @@ import { rgb, type PDFDocument, type PDFFont, type PDFImage, type PDFPage } from
 
 export const QUOTE_SIZE: [number,number] = [595.28,841.89];
 export const QUOTE_NAVY = rgb(.07,.13,.22);
+export type QuoteContact = { address:string;phone:string;email:string;website:string };
 
 export async function quoteLogo(doc: PDFDocument, provided?: Uint8Array) {
   if (provided) return doc.embedPng(provided);
@@ -31,6 +32,29 @@ export function fitPdfText(text: string, font: PDFFont, size: number, width: num
   let prefix = printable;
   while (prefix && font.widthOfTextAtSize(`${prefix}...`,size)>width) prefix=prefix.slice(0,-1);
   return `${prefix.trimEnd()}...`;
+}
+
+export function wrapPdfText(text:string,font:PDFFont,size:number,width:number,maxLines:number) {
+  const words=fitPdfText(text,font,size,Infinity).split(" ");
+  const lines:string[]=[];
+  let line="";
+  while (words.length && lines.length<maxLines-1) {
+    const word=words[0];
+    const next=line ? `${line} ${word}` : word;
+    if (font.widthOfTextAtSize(next,size)<=width) {
+      line=next;
+      words.shift();
+    } else if (line) {
+      lines.push(line);
+      line="";
+    } else {
+      lines.push(fitPdfText(word,font,size,width));
+      words.shift();
+    }
+  }
+  const remaining=[line,...words].filter(Boolean).join(" ");
+  if (remaining) lines.push(fitPdfText(remaining,font,size,width));
+  return lines;
 }
 
 export function downloadQuote(blob: Blob, filename: string) {

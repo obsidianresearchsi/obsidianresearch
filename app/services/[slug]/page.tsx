@@ -6,7 +6,7 @@ import { SolarEstimator } from "@/components/solar-estimator";
 import { InteriorPlanner } from "@/components/interior-planner";
 import { NetworkStudio } from "@/components/network-studio";
 import { Breadcrumbs, ButtonLink, Eyebrow } from "@/components/ui";
-import { catalog, company, detail, detailsList, SERVICE_VISUALS, WHATSAPP } from "@/lib/catalog";
+import { catalog, company, DEFAULT_COMPANY, detail, detailsList, SERVICE_VISUALS, WHATSAPP } from "@/lib/catalog";
 import { money, servicePrice } from "@/lib/model";
 import { SOLAR_SERVICE, solarAppliances, solarPrices } from "@/lib/solar";
 import { INTERIOR_SERVICE, interiorPrices } from "@/lib/interior";
@@ -52,6 +52,7 @@ export default async function ServiceDetail({ params, searchParams }: {
   }
   const phone = info ? detail(info, "phone").replace(/\D/g, "") : "";
   const whatsapp = /^\d{8,15}$/.test(phone) ? `https://wa.me/${phone}` : WHATSAPP;
+  const companyDetail=(key:string)=>detail(info ?? DEFAULT_COMPANY,key,detail(DEFAULT_COMPANY,key));
   return <>
     <header className="course-hero">{visual?.image && <img src={visual.image} alt="" />}
       <div className="wrap"><Eyebrow>Obsidian Research / Business divisions</Eyebrow>
@@ -72,7 +73,8 @@ export default async function ServiceDetail({ params, searchParams }: {
       {interior && <InteriorPlanner prices={interiorPrices(service.details.interior_prices)} whatsapp={whatsapp}
         accountId={account?.user.email_confirmed_at ? account.user.id : null} />}
       {quotePrices && <NetworkStudio key={typeof query.review === "string" ? query.review : "draft"} prices={quotePrices} whatsapp={whatsapp}
-        accountId={account?.user.email_confirmed_at ? account.user.id : null} reviewPlan={reviewPlan} equipment={equipment} />}
+        accountId={account?.user.email_confirmed_at ? account.user.id : null} reviewPlan={reviewPlan} equipment={equipment}
+        quoteContact={{address:companyDetail("address"),phone:companyDetail("phone"),email:companyDetail("email"),website:companyDetail("website")}} />}
       <div className="split"><div className="prose"><h2>What we do</h2><p className="whitespace-pre-line">{service.body}</p>
         {offerings.length > 0 && <><h3>Key offerings</h3><ul>{offerings.map((item) => <li key={item}>{item}</li>)}</ul></>}
       </div><aside className="panel"><h2>How we can help</h2>
