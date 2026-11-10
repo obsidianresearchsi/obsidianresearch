@@ -7,7 +7,7 @@ import { InstallApp } from "./install-app";
 
 const navigation = [
   { label: "Services", href: "/services" }, { label: "Training", href: "/training" },
-  { label: "News", href: "/news" }, { label: "About", href: "/about" }, { label: "Contact", href: "/contact" },
+  { label: "Portfolio", href: "/portfolio" }, { label: "News", href: "/news" }, { label: "About", href: "/about" }, { label: "Contact", href: "/contact" },
 ];
 
 export function Logo({ dark = false }: { dark?: boolean }) {

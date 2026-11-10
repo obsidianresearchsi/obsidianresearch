@@ -8,14 +8,18 @@ import { couponCode, errorMessage, optText, optionalDate, optionalUuid, text, to
 import { editorialImage } from "@/lib/editorial";
 import { CONTENT, FINANCE, OPERATIONS, ROLES, STATUSES } from "@/lib/model";
 import { PaymentError, verifyFlutterwave } from "@/lib/payments";
+import { notifyContactEnquiry } from "@/lib/mail";
 import { requireStaff } from "@/lib/supabase";
-import { SOLAR_RATES, SOLAR_SERVICE } from "@/lib/solar";
+import { LOAD_PRESETS, SOLAR_RATES, SOLAR_SERVICE } from "@/lib/solar";
+import { portfolioUrl, portfolioVideo } from "@/lib/portfolio";
+import { INTERIOR_RATES, INTERIOR_SERVICE } from "@/lib/interior";
+import { NETWORK_RATES, NETWORK_SERVICE } from "@/lib/network";
 
 const field = (form: FormData, name: string) => String(form.get(name) ?? "").trim();
 const isChecked = (form: FormData, name: string) => form.get(name) === "on";
 const lines = (value: string) => value.split(/\r?\n/).map((v) => v.trim()).filter(Boolean).slice(0,20);
 const slug = z.string().trim().min(2).max(90).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Use lowercase words separated by hyphens for the slug.");
-const kinds = ["company","service","announcement","testimonial","faq","promotion","article"] as const;
+const kinds = ["company","service","announcement","testimonial","faq","promotion","article","portfolio"] as const;
 const message = (error: { code?: string; message: string }, fallback: string): FormState =>
   ({ error: error.code === "P0001" ? error.message : error.code === "23505" ? "That value is already in use." : fallback });
 
@@ -239,7 +243,7 @@ export async function reconcilePayment(_: FormState, form: FormData): Promise<Fo
   if (!parsed.success) return { error: "Enter a valid checkout reference and Flutterwave transaction ID." };
   const { data: payment } = await db.from("payments").select("id").eq("reference",parsed.data.reference).eq("method","flutterwave").maybeSingle();
   if (!payment) return { error: "Checkout reference not found." };
-  try { await verifyFlutterwave(parsed.data.transaction,parsed.data.reference); }
+  try { await verifyFlutterwave(parsed.data.transaction,parsed.data.reference,"admin"); }
   catch (error) { return { error: error instanceof PaymentError ? error.message : "Verification could not be completed." }; }
   revalidatePath("/admin/finance");
   return { success: "Flutterwave verified the payment. Receipt issued." };
@@ -269,15 +273,46 @@ export async function saveContent(_: FormState, form: FormData): Promise<FormSta
       if (kobo === null || kobo > 5_000_000_000) return { error: "Enter a valid service price in naira." };
       details.price_kobo = kobo;
     }
-    if (values.slug === SOLAR_SERVICE && isChecked(form,"solar_pricing")) {
-      const prices: Record<string, number> = {};
-      for (const { key, label } of SOLAR_RATES) {
-        const amount = toKobo(field(form,`solar_price_${key}`));
+    const estimator = values.slug === SOLAR_SERVICE ? { key: "solar", rates: SOLAR_RATES }
+      : values.slug === INTERIOR_SERVICE ? { key: "interior", rates: INTERIOR_RATES }
+      : values.slug === NETWORK_SERVICE ? { key: "network", rates: NETWORK_RATES } : null;
+    if (estimator && isChecked(form,`${estimator.key}_pricing`)) {
+      const prices: Record<string, number | null> = {};
+      for (const { key, label } of estimator.rates) {
+        const value = field(form,`${estimator.key}_price_${key}`);
+        if (!value && estimator.key === "network") { prices[key] = null; continue; }
+        const amount = toKobo(value);
         if (amount === null || amount > 5_000_000_000) return { error: `Enter a valid price in naira for ${label}.` };
         prices[key] = amount;
       }
-      details.solar_prices = prices;
+      details[`${estimator.key}_prices`] = prices;
     }
+    if (values.slug === SOLAR_SERVICE && isChecked(form,"solar_ratings")) {
+      const watts: Record<string, number> = {};
+      for (const appliance of LOAD_PRESETS) {
+        const rating = field(form, `solar_watts_${appliance.id}`);
+        if (!/^\d{1,5}$/.test(rating) || Number(rating) < 1 || Number(rating) > 25_000) return { error: `Enter a wattage for ${appliance.name}.` };
+        watts[appliance.id] = Number(rating);
+      }
+      details.solar_appliances = watts;
+    }
+    if (estimator && id && (!details[`${estimator.key}_prices`] || (estimator.key === "solar" && !details.solar_appliances))) {
+      const { data, error } = await db.from("site_content").select("details").eq("id", id).maybeSingle();
+      if (error) return { error: "Could not load the current estimate prices." };
+      for (const key of [`${estimator.key}_prices`, ...(estimator.key === "solar" ? ["solar_appliances"] : [])]) {
+        if (!details[key] && data?.details?.[key]) details[key] = data.details[key];
+      }
+    }
+  } else if (values.kind === "portfolio") {
+    const project = field(form, "project_url");
+    const image = field(form, "portfolio_image");
+    const video = field(form, "portfolio_video");
+    const projectUrl = portfolioUrl(project, true);
+    const imageUrl = portfolioUrl(image, true);
+    const videoUrl = portfolioVideo(video);
+    if ((project && !projectUrl) || (image && !imageUrl) || (video && !videoUrl)) return { error: "Check the project, image or supported video URL." };
+    if (!projectUrl && !imageUrl && !videoUrl) return { error: "Add a project link, image or video." };
+    details = { project_url: projectUrl, image_url: imageUrl, video_url: videoUrl ? portfolioUrl(video) : "" };
   } else if (values.kind==="article") {
     const cover = field(form,"cover_url");
     const alt = field(form,"cover_alt");
@@ -323,6 +358,18 @@ export async function resolveEnquiry(_: FormState, form: FormData): Promise<Form
   if (error) return message(error,"Could not update the enquiry.");
   revalidatePath("/admin/enquiries");
   return { success: "Enquiry status updated." };
+}
+
+export async function retryEnquiryEmail(_: FormState, form: FormData): Promise<FormState> {
+  await requireStaff(["super_admin", "admin"]);
+  const id = uuid.safeParse(field(form, "id"));
+  if (!id.success) return { error: "Invalid enquiry." };
+  const result = await notifyContactEnquiry(id.data);
+  revalidatePath("/admin/enquiries");
+  if (result === "sent") return { success: "Email notification accepted by the mail provider." };
+  if (result === "unconfigured") return { error: "The mail sender is not configured. The enquiry is saved in this inbox." };
+  if (result === "expired") return { error: "The safe retry window has closed. You can reply directly from this inbox." };
+  return { error: "Could not send the notification. The enquiry is saved in this inbox." };
 }
 
 export async function savePaymentInstructions(_: FormState, form: FormData): Promise<FormState> {

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { BookOpen, ChartNoAxesColumn, ClipboardList, FileText, GraduationCap, LayoutDashboard, Mail, MessagesSquare, Settings, ShieldCheck, UsersRound } from "lucide-react";
+import { BookOpen, Boxes, ChartNoAxesColumn, ClipboardList, FileText, FolderOpen, GraduationCap, LayoutDashboard, Mail, MessagesSquare, Settings, ShieldCheck, UsersRound } from "lucide-react";
 import { Portal } from "@/components/portal";
 import { CONTENT, FINANCE, OPERATIONS, ROLE_LABELS } from "@/lib/model";
 import { requireStaff } from "@/lib/supabase";
@@ -11,6 +11,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const links = [{ href:"/admin",label:"Overview",icon:LayoutDashboard }];
   if (OPERATIONS.includes(role)) links.push(
     { href:"/admin/courses",label:"Courses",icon:BookOpen },
+    { href:"/admin/materials",label:"Course materials",icon:FolderOpen },
     { href:"/admin/applications",label:"Applications",icon:ClipboardList },
     { href:"/admin/students",label:"Students",icon:GraduationCap },
     { href:"/admin/inbox",label:"Customer inbox",icon:MessagesSquare },
@@ -18,6 +19,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (FINANCE.includes(role)) links.push({ href:"/admin/finance",label:"Finance",icon:ChartNoAxesColumn });
   if (CONTENT.includes(role)) links.push(
     { href:"/admin/content",label:"Site content",icon:FileText },
+    { href:"/admin/equipment",label:"Studio equipment",icon:Boxes },
     { href:"/admin/enquiries",label:"Enquiries",icon:Mail },
   );
   if (role === "super_admin") links.push({ href:"/admin/settings",label:"Payment settings",icon:Settings },{ href:"/admin/staff",label:"Staff access",icon:UsersRound });

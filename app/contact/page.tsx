@@ -7,18 +7,19 @@ import { company, DEFAULT_COMPANY, detail } from "@/lib/catalog";
 
 export const metadata: Metadata = { title: "Contact", description: "Contact Obsidian Research about services, training or a visit to the Katsina training centre." };
 
-export default async function Contact({ searchParams }: { searchParams: Promise<{ topic?: string }> }) {
+export default async function Contact({ searchParams }: { searchParams: Promise<{ topic?: string | string[] }> }) {
   const [info, query] = await Promise.all([company(), searchParams]);
   const phone = detail(info, "phone", DEFAULT_COMPANY.details.phone as string);
   const number = phone.replace(/\D/g, "");
   const email = detail(info, "email");
+  const topic = typeof query.topic === "string" ? query.topic.slice(0,120) : undefined;
   return <><Intro label="Contact the team" title="How can we help?">Tell us what you’re working on or ask about an upcoming training program.</Intro>
     <section className="section"><div className="wrap split">
       <div className="panel"><h2>Send an enquiry</h2>
         <ActionForm action={contactEnquiry} submit="Send enquiry">
           <div className="form-grid"><Field name="full_name" label="Full name" autoComplete="name" maxLength={100} required />
             <Field type="email" name="email" label="Email address" autoComplete="email" maxLength={254} required /></div>
-          <Field name="topic" label="Topic" defaultValue={query.topic?.slice(0,120)} maxLength={120} required />
+          <Field name="topic" label="Topic" defaultValue={topic} maxLength={120} required />
           <Textarea name="message" label="Message" minLength={10} maxLength={2000} rows={5} required />
           <input className="hidden-trap" name="fax" tabIndex={-1} autoComplete="off" aria-hidden />
           <p className="small muted">Please keep identity documents and payment details out of this message.</p>

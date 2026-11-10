@@ -7,7 +7,7 @@ import { calendar, money, shortReference, STATUS_LABELS, type Application, type 
 import { requireStudent } from "@/lib/supabase";
 
 const shortcuts = [
-  { href:"/training", label:"Explore training", description:"Compare programs and start a new application.", Icon:GraduationCap },
+  { href:"/dashboard/apply", label:"Apply for training", description:"Choose a program and apply in My Workspace.", Icon:GraduationCap },
   { href:"/dashboard/services", label:"Request a service", description:"Explore our services and track your requests.", Icon:BriefcaseBusiness },
   { href:"/dashboard/messages", label:"Message our team", description:"Ask a question or follow up on a request.", Icon:MessagesSquare },
 ];
@@ -54,12 +54,12 @@ export default async function Dashboard() {
         conversations.length ? <ThreadList items={conversations} base="/dashboard/messages" /> :
           <p className="muted">Service requests and support chats will appear here.</p>}
     </section>
-    <section className="panel"><h2>My applications</h2>
+    <section className="panel"><div className="panel-title"><h2>My applications</h2><Link className="text-link" href="/dashboard/apply">New application <ArrowUpRight size={15} aria-hidden /></Link></div>
       {list.length ? <div className="table-scroll"><table><thead><tr><th>Program</th><th>Reference</th><th>Status</th><th>Submitted</th><th>Details</th></tr></thead>
         <tbody>{list.map((a) => <tr key={a.id}><td>{a.courses?.title || "Training program"}</td><td className="reference">{shortReference(a.reference)}</td>
           <td><Badge tone={a.status === "enrolled" || a.status === "payment_confirmed" ? "green" : "blue"}>{STATUS_LABELS[a.status]}</Badge></td>
           <td>{calendar(a.created_at)}</td><td><Link href={`/dashboard/applications/${a.id}`}>View <ArrowUpRight className="inline" size={13} aria-hidden /></Link></td></tr>)}</tbody>
-      </table></div> : <Empty title="You haven’t applied yet">Choose a program to start your application.<br /><ButtonLink href="/training">Browse training</ButtonLink></Empty>}
+      </table></div> : <Empty title="You haven’t applied yet">Choose a program to start your application.<br /><ButtonLink href="/dashboard/apply">Browse training</ButtonLink></Empty>}
     </section>
     <section className="panel"><h2>My enrolments</h2>
       {id && <p className="small muted">Student ID <span className="reference">{id.student_number}</span></p>}
@@ -70,11 +70,12 @@ export default async function Dashboard() {
     </section>
     <div className="split split-even">
       <section className="panel"><h2>Recent activity</h2>
-        {notifications.data?.length ? <div className="stack">{notifications.data.map((n) => <div key={n.id}><strong>{n.title}</strong>
-          <p className="small muted">{shortReference(n.body)} · {calendar(n.created_at)}</p></div>)}</div> : <p className="muted">No updates yet.</p>}
+        {notifications.data?.length ? <div className="stack">{notifications.data.map((n) => <div key={n.id}>
+          {n.title === "New course material" ? <Link className="text-link" href="/dashboard/documents">{n.title}</Link> : <strong>{n.title}</strong>}
+          <p className="small muted">{n.title === "New course material" ? n.body : shortReference(n.body)} · {calendar(n.created_at)}</p></div>)}</div> : <p className="muted">No updates yet.</p>}
       </section>
-      <section className="panel"><h2 className="row"><BookOpen size={21} aria-hidden />Guidelines & rules</h2>
-        <p className="muted">Open the student rules, training agreement and Obsidian Research design guidelines.</p>
+      <section className="panel"><h2 className="row"><BookOpen size={21} aria-hidden />Course materials & guidelines</h2>
+        <p className="muted">Find files for your enrolled courses and read the student rules and training agreement.</p>
         <div className="mt-4"><ButtonLink href="/dashboard/documents" variant="dark">View documents</ButtonLink></div>
       </section>
     </div>

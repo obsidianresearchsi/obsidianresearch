@@ -8,7 +8,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     catalog(),publicDb()?.from("site_content").select("slug,updated_at").eq("kind","article").eq("published",true),
   ]);
   return [
-    "/", "/about", "/services", "/training", "/news", "/contact", "/policies",
+    "/", "/about", "/services", "/training", "/portfolio", "/news", "/contact", "/policies",
     ...content.filter((row) => row.kind === "service").map((row) => `/services/${row.slug}`),
     ...courses.map((row) => `/training/${row.slug}`),
   ].map((path): MetadataRoute.Sitemap[number] => ({ url: new URL(path,site).href })).concat(

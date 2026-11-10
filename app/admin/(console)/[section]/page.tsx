@@ -4,7 +4,7 @@ import { ActionForm } from "@/components/action-form";
 import { CONTENT_KINDS, type ContentKind } from "@/components/admin-editors";
 import { PortalTitle } from "@/components/portal";
 import { Badge, ButtonLink, DataList, Empty, Field, Notice, Select, Textarea } from "@/components/ui";
-import { manageStaff, reconcilePayment, recordPayment, resolveEnquiry, savePaymentInstructions, updateEnrollment } from "@/app/admin/actions";
+import { manageStaff, reconcilePayment, recordPayment, resolveEnquiry, retryEnquiryEmail, savePaymentInstructions, updateEnrollment } from "@/app/admin/actions";
 import { applicationQuery, filters, financeAccounts, param, paymentQuery, type Query } from "@/lib/admin-data";
 import { calendar, CONTENT, courseState, FINANCE, METHOD_LABELS, money, OPERATIONS, ROLE_LABELS, ROLES, shortReference,
   STATUSES, STATUS_LABELS, type Application, type Batch, type Content, type Course, type Enrollment,
@@ -141,6 +141,8 @@ async function Finance({ query }: { query:Query }) {
         </ActionForm>
       </section>
       <section className="panel"><h2>Verify an online transaction</h2>
+        <p className="small muted">Review late charges, mismatched amounts and duplicate events in the payment audit.</p>
+        <Link className="text-link" href="/admin/audit?entity=payments">Open payment audit</Link>
         <ActionForm action={reconcilePayment} submit="Verify with Flutterwave" tone="dark">
           <Field name="reference" label="Full checkout reference" maxLength={36} required />
           <Field name="transaction" label="Flutterwave transaction ID" inputMode="numeric" maxLength={30} required />
@@ -172,7 +174,7 @@ async function ContentList({ query }: { query: Query }) {
   if (category) listQuery = listQuery.eq("kind",category);
   const result = await listQuery.order("kind").order("position").order("updated_at",{ascending:false}).order("id").range(start,start+29);
   const list = (result.data ?? []) as Pick<Content,"id"|"kind"|"title"|"published"|"updated_at">[];
-  return <><PortalTitle title="Website content">Manage services, prices, and articles in the Obsidian Journal.</PortalTitle>
+  return <><PortalTitle title="Website content">Manage services, estimator prices, portfolio projects and journal articles.</PortalTitle>
     <section className="panel stack"><h2>Add content</h2><div className="row">{Object.entries(CONTENT_KINDS).filter(([kind]) => kind!=="company")
       .map(([kind,label]) => <ButtonLink href={`/admin/content/new?kind=${kind}`} key={kind} variant="ghost" arrow="none">{label}</ButtonLink>)}</div></section>
     <section className="panel"><div className="panel-title"><h2>{category ? CONTENT_KINDS[category] : "All content"}</h2>
@@ -180,6 +182,7 @@ async function ContentList({ query }: { query: Query }) {
         <Link className="text-link" aria-current={!category ? "page" : undefined} href="/admin/content">All</Link>
         <Link className="text-link" aria-current={category==="service" ? "page" : undefined} href="/admin/content?kind=service">Services</Link>
         <Link className="text-link" aria-current={category==="article" ? "page" : undefined} href="/admin/content?kind=article">Journal</Link>
+        <Link className="text-link" aria-current={category==="portfolio" ? "page" : undefined} href="/admin/content?kind=portfolio">Portfolio</Link>
       </nav></div>
       {result.error && <Notice tone="error">Site content could not be loaded.</Notice>}
       {list.length ? <div className="table-scroll"><table><thead><tr><th>Title</th><th>Type</th><th>Visibility</th><th>Updated</th></tr></thead>
@@ -193,7 +196,7 @@ async function ContentList({ query }: { query: Query }) {
 async function Enquiries({ query }: { query:Query }) {
   const { db } = await requireStaff(CONTENT);
   const start = (pageNumber(query)-1)*30;
-  const result = await db.from("contact_enquiries").select("id,full_name,email,topic,message,resolved,created_at",{count:"exact"})
+  const result = await db.from("contact_enquiries").select("id,full_name,email,topic,message,resolved,created_at,notification_status",{count:"exact"})
     .order("created_at",{ascending:false}).order("id").range(start,start+29);
   return <><PortalTitle title="Enquiry inbox">Review contact requests from the public website.</PortalTitle>
     {result.error && <Notice tone="error">The enquiry inbox could not be loaded.</Notice>}
@@ -201,9 +204,18 @@ async function Enquiries({ query }: { query:Query }) {
       <div className="panel-title"><h2>{item.topic}</h2><Badge tone={item.resolved?"green":"blue"}>{item.resolved?"Resolved":"Open"}</Badge></div>
       <p className="small muted">{item.full_name} · {item.email} · {calendar(item.created_at)}</p>
       <p className="whitespace-pre-line">{item.message}</p>
+      <p className="small muted">Admin email · {({
+        sent: "Accepted by mail provider", queued: "Awaiting notification", failed: "Send failed",
+        unconfigured: "Mail sender not configured",
+      } as Record<string, string>)[item.notification_status] ?? "Unknown"}</p>
+      <a className="text-link" href={`mailto:${item.email}?subject=${encodeURIComponent(`Re: ${item.topic}`)}`}>Reply by email</a>
       <div className="mt-3"><ActionForm action={resolveEnquiry} submit={item.resolved?"Reopen enquiry":"Mark resolved"} tone="dark">
         <input type="hidden" name="id" value={item.id} /><input type="hidden" name="resolved" value={String(!item.resolved)} />
       </ActionForm></div>
+      {!item.resolved && item.notification_status !== "sent" && Date.now() - Date.parse(item.created_at) < 23 * 60 * 60 * 1000 &&
+        <div className="mt-3"><ActionForm action={retryEnquiryEmail} submit="Retry admin email" tone="dark">
+          <input type="hidden" name="id" value={item.id} />
+        </ActionForm></div>}
     </section>) : <Empty title="No enquiries yet">Requests submitted through the contact form will appear here.</Empty>}
     <Pages path="/admin/enquiries" query={query} count={result.count ?? 0} /></>;
 }
@@ -229,12 +241,15 @@ async function Staff() {
 async function Audit({ query }: { query:Query }) {
   const { db } = await requireStaff(FINANCE);
   const start = (pageNumber(query)-1)*30;
-  const result = await db.from("audit_logs").select("*",{count:"exact"}).order("id",{ascending:false}).range(start,start+29);
+  const entity = param(query,"entity");
+  const base = db.from("audit_logs").select("*",{count:"exact"}).order("id",{ascending:false});
+  const result = await (entity === "payments" || entity === "contact_enquiries" ? base.eq("entity",entity) : base).range(start,start+29);
   return <><PortalTitle title="Audit history">Review staff changes and payment events permitted by your role.</PortalTitle>
     <section className="panel">{result.error && <Notice tone="error">Audit events could not be loaded.</Notice>}
       {result.data?.length ? <div className="table-scroll"><table><thead><tr><th>Date</th><th>Entity</th><th>Action</th><th>Reference</th><th>Actor</th><th>Details</th></tr></thead>
         <tbody>{result.data.map((event) => <tr key={event.id}><td>{calendar(event.created_at)}</td><td>{event.entity}</td>
-          <td>{event.action}</td><td className="reference">{event.entity_id ? shortReference(event.entity_id) : "—"}</td>
+          <td>{event.action === "flutterwave_balance_review" ? <Badge tone="gold">Charge requires balance review</Badge> : event.action}</td>
+          <td className="reference">{event.entity_id ? shortReference(event.entity_id) : "—"}</td>
           <td className="reference">{event.actor_id ? shortReference(event.actor_id) : "System"}</td>
           <td><code>{JSON.stringify(event.detail)}</code></td></tr>)}</tbody></table></div>
         : <Empty title="No audit records for this role" />}

@@ -45,7 +45,7 @@ export type CustomerThread = {
   id: string; user_id: string; service_id: string | null; subject: string; price_kobo: number | null;
   status: (typeof THREAD_STATUSES)[number]; created_at: string; updated_at: string;
 };
-export type CustomerMessage = { id: number; thread_id: string; from_staff: boolean; body: string; created_at: string };
+export type CustomerMessage = { id: number; thread_id: string; from_staff: boolean; body: string; created_at: string; attachment_path?: string | null; network_plan?: unknown };
 
 export function servicePrice(service: Content) {
   const value = service.details.price_kobo;

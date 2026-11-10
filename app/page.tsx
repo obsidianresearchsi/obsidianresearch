@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowUpRight, Check, GraduationCap, MapPin, Network } from "lucide-react";
 import { CourseCard, ServiceCard } from "@/components/catalog";
+import { HomePlanners } from "@/components/home-planners";
 import { StructuredData } from "@/components/structured-data";
 import { ButtonLink, Empty, Eyebrow, SectionHeading } from "@/components/ui";
 import { catalog, company, detail, TAGLINE } from "@/lib/catalog";
@@ -38,6 +39,7 @@ export default async function Home() {
       <div><MapPin size={19} aria-hidden /> Based in Katsina, Nigeria</div>
     </div></div>
     {detail(info,"banner") && <div className="section-compact section-white"><div className="wrap"><div className="announcement"><p>{detail(info,"banner")}</p></div></div></div>}
+    <HomePlanners services={services} />
     <section className="section"><div className="wrap">
       <SectionHeading label="01 / Our expertise" title="Explore our divisions"><ButtonLink href="/services" variant="ghost">All services</ButtonLink></SectionHeading>
       {services.length ? <div className="service-grid">{services.map((service, i) => <ServiceCard key={service.id} service={service} i={i} />)}</div>

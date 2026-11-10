@@ -14,7 +14,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
     { href: "/dashboard/services", label: "Services & requests", icon: BriefcaseBusiness },
     { href: "/dashboard/messages", label: "Messages", icon: MessagesSquare },
-    { href: "/dashboard/documents", label: "Documents", icon: BookOpen },
-    { href: "/training", label: "Browse training", icon: GraduationCap },
+    { href: "/dashboard/documents", label: "Materials & documents", icon: BookOpen },
+    { href: "/dashboard/apply", label: "Apply for training", icon: GraduationCap },
   ]}>{children}</Portal>;
 }

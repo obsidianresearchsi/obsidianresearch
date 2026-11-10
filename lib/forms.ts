@@ -45,6 +45,7 @@ export function toKobo(value: string) {
 }
 
 export function safePath(input: string | undefined, fallback = "/dashboard") {
+  if (input === "/services/interior-design#interior-planner" || input === "/services/advanced-networking#network-studio") return input;
   if (typeof input !== "string" || !/^\/(?:dashboard|apply|admin|account\/update)(?:[/?]|$)/.test(input) || /[\\\r\n]/.test(input)) return fallback;
   return input;
 }

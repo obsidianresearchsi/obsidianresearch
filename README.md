@@ -24,7 +24,8 @@ Open [http://localhost:3000](http://localhost:3000). The catalogue reads the pro
 | `FLUTTERWAVE_WEBHOOK_SECRET` | Optional fallback for the random hash entered in Flutterwave's webhook settings. |
 | `CONTACT_RATE_LIMIT_SECRET` | Random server-only string used to HMAC the contact rate-limit key. |
 | `IDENTITY_ENCRYPTION_KEY` | Base64-encoded 32 random bytes for optional NIN encryption. Keep a secure backup before rotation. |
-| `RESEND_API_KEY`, `MAIL_FROM` | Optional application confirmation email. Use a verified sender and domain. |
+| `RESEND_API_KEY`, `MAIL_FROM` | Enable application confirmation and admin enquiry emails. Use a verified sender and domain. |
+| `CONTACT_NOTIFICATION_EMAIL` | Optional enquiry notification recipient. Defaults to the Obsidian Research admin email. |
 
 The Supabase management token is used only by the migration helper and does not belong in the application's runtime environment. Configure production secrets in Vercel or your hosting secret manager.
 
@@ -39,9 +40,10 @@ node scripts/manage-db.mjs list
 node scripts/manage-db.mjs inspect PROJECT_REF
 node scripts/manage-db.mjs apply PROJECT_REF
 node scripts/manage-db.mjs connect PROJECT_REF
+node scripts/manage-db.mjs connect-server PROJECT_REF
 ```
 
-`connect` creates an ignored `.env.local` with public connection settings and refuses to overwrite an existing file. The Management API generates its own version timestamps for these migrations, so continue applying them with the helper or reconcile the CLI migration history before switching tools.
+`connect` creates an ignored `.env.local` with public connection settings and refuses to overwrite an existing file. `connect-server` fills in the local Supabase server key and contact rate-limit secret if they are absent. The Management API generates its own version timestamps for these migrations, so continue applying them with the helper or reconcile the CLI migration history before switching tools.
 
 For a fresh Supabase project, place the three original PDFs in the ignored `documents/` folder and run `node scripts/manage-db.mjs upload-documents PROJECT_REF` after applying migrations. The workspace downloads use short-lived signed links from the private `workspace-documents` bucket.
 
@@ -75,9 +77,13 @@ Students select Flutterwave, cash or bank transfer on the application. They can 
 
 After setting `SUPABASE_SECRET_KEY` and `PAYMENT_SETTINGS_ENCRYPTION_KEY` on the host, a super administrator can enter or rotate the provider credentials and pause new checkouts from **Payment settings**. Saved values are encrypted and take precedence over their environment fallbacks. The form does not display stored credentials. Generate the encryption key with `node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('base64'))"` in a private terminal and save it in the host's secret manager.
 
-For Flutterwave Standard v3, configure `https://YOUR_ORIGIN/api/payments/webhook` in the merchant dashboard, set the matching secret hash and enable retries. The server compares the documented `verif-hash` header, verifies the transaction with Flutterwave, and reconciles the exact reference, amount, currency and transaction ID. The checkout redirect is independently verified. Finance can verify a missed callback with its checkout reference and Flutterwave transaction ID. Duplicate callbacks or webhooks return the existing confirmation.
+For Flutterwave Standard v3, configure `https://YOUR_ORIGIN/api/payments/webhook` in the merchant dashboard, set the matching secret hash and enable retries. The server verifies the v3 `verif-hash` header or the HMAC signature when present, then verifies the transaction with Flutterwave against the exact reference, amount, currency and transaction ID. The checkout redirect uses the same verification. Finance can verify a missed callback with its checkout reference and Flutterwave transaction ID. Duplicate deliveries cannot issue extra receipts or credit the balance twice.
 
-Test in the Flutterwave test environment before accepting live payments. Verify successful, failed, repeated and delayed notifications and review any exception in the finance ledger. The site does not launch an online checkout unless the provider and reconciliation secrets are configured. Set verified cash and bank transfer instructions in **Finance** before launch.
+Test in the Flutterwave test environment before accepting live payments. Verify successful, failed, repeated and delayed notifications. **Finance** links to the payment audit, where verified charges that would overpay an application are flagged for manual review. Set verified cash and bank transfer instructions in **Finance** before launch.
+
+## Contact enquiries
+
+Set `SUPABASE_SECRET_KEY` and `CONTACT_RATE_LIMIT_SECRET` so Get in touch can write to **Admin → Enquiries**. The submission is stored before email is attempted. Staff can see the mail status, retry recent notifications, reply to the sender and mark the enquiry resolved. **Admin → Audit** records inbox and notification status changes.
 
 ## Customer workspace
 

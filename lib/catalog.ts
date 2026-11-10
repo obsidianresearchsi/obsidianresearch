@@ -43,7 +43,7 @@ export const catalog = cache(async () => {
   const db = publicDb();
   if (!db) return { available: false, content: [] as Content[], courses: [] as Course[], offers: [] as Offer[] };
   const [content, courses, offers] = await Promise.all([
-    db.from("site_content").select("*").eq("published", true).neq("kind","article").order("position").order("title"),
+    db.from("site_content").select("*").eq("published", true).neq("kind","article").neq("kind","portfolio").order("position").order("title"),
     db.from("courses").select("*").eq("published", true).eq("archived", false).order("created_at"),
     db.rpc("public_offers"),
   ]);

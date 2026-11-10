@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="560" viewBox="0 0 900 560">
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#151c26"/><stop offset="1" stop-color="#424248"/></linearGradient>
+    <linearGradient id="wall" x2="1" y2="1"><stop stop-color="#f2e3cb"/><stop offset="1" stop-color="#c5a584"/></linearGradient>
+    <linearGradient id="floor" x2="1" y2="1"><stop stop-color="#b5855c"/><stop offset="1" stop-color="#eed1a7"/></linearGradient>
+    <pattern id="slat" width="14" height="18" patternUnits="userSpaceOnUse"><rect width="14" height="18" fill="#553a2d"/><rect width="9" height="18" fill="#885d42"/></pattern>
+  </defs>
+  <rect width="900" height="560" fill="url(#bg)"/>
+  <circle cx="698" cy="142" r="161" fill="none" stroke="#e7b975" stroke-opacity=".25"/>
+  <circle cx="698" cy="142" r="202" fill="none" stroke="#e7b975" stroke-opacity=".15"/>
+  <path d="M176 341 518 467 816 310 490 194Z" fill="#0c1420" opacity=".7"/>
+  <path d="m153 313 335-140 288 105-298 150z" fill="url(#floor)"/>
+  <path d="m153 313 335-140V42L153 178z" fill="url(#wall)"/>
+  <path d="m488 173 288 105V147L488 42z" fill="#dac4a6"/>
+  <path d="m197 249 111-45v-60l-111 45z" fill="#afc9c7" stroke="#4b443e" stroke-width="6"/>
+  <path d="m252 166v60m-55-9 111-45" stroke="#4b443e" stroke-width="5"/>
+  <path d="m336 215 132-55v40l-132 55zM336 158l132-55v34l-132 55z" fill="#755846"/>
+  <path d="m336 214 132-56 14 5-132 58z" fill="#fff0d0"/>
+  <path d="M531 93 716 160V256l-185-67z" fill="url(#slat)"/>
+  <path d="m559 119 128 47v57l-128-46z" fill="#171f2a" stroke="#222" stroke-width="5"/>
+  <path d="m547 207 158 56-18 14-158-56z" fill="#aa7550"/>
+  <path d="m379 319 113 41 77-38-112-40z" fill="#f1e5ca"/>
+  <path d="M379 319v29l113 42v-30z" fill="#b8a188"/>
+  <path d="m492 360 77-38v29l-77 39z" fill="#d8c2a6"/>
+  <ellipse cx="524" cy="296" rx="45" ry="19" fill="#8c6449"/>
+  <circle cx="289" cy="273" r="24" fill="#e5c092"/>
+  <path d="M64 475h72" stroke="#d3ab6b" stroke-width="3"/>
+  <text x="64" y="514" fill="#f8e9d4" font-size="27" font-family="system-ui,sans-serif" letter-spacing="4">INTERIOR STUDIO</text>
+</svg>

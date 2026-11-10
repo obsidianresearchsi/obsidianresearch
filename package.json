@@ -2,7 +2,9 @@
   "name": "obsidian-research-platform",
   "version": "1.0.0",
   "private": true,
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build --webpack",
@@ -15,9 +17,11 @@
     "@supabase/supabase-js": "^2.95.0",
     "lucide-react": "^0.577.0",
     "next": "^16.2.0",
+    "pdf-lib": "1.17.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "server-only": "^0.0.1",
+    "three": "^0.187.0",
     "zod": "^4.3.0"
   },
   "devDependencies": {
@@ -26,6 +30,7 @@
     "@types/node": "^22.0.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "@types/three": "^0.187.0",
     "tailwindcss": "^4.2.0",
     "typescript": "^5.9.0"
   }

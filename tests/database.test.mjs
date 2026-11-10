@@ -71,15 +71,27 @@ test("migrations, owner isolation, offer limits, and payment reconciliation", as
     await as("authenticated",student);
     assert.equal((await rows("select * from public.payment_settings")).length,1);
     await rows("select public.choose_payment($1,'flutterwave',null)",[first]);
-    const [charge] = await rows("select * from public.begin_checkout($1)",[first]);
-    const [repeat] = await rows("select * from public.begin_checkout($1)",[first]);
+    const [[charge], [repeat]] = await Promise.all([
+      rows("select * from public.begin_checkout($1)",[first]),
+      rows("select * from public.begin_checkout($1)",[first]),
+    ]);
     assert.equal(charge.id,repeat.id);
     assert.equal(repeat.created,false);
     await assert.rejects(rows("select public.confirm_flutterwave($1,'1234',8000000,'NGN')",[charge.reference]),/permission denied/);
     await as("service_role");
     await assert.rejects(rows("select public.confirm_flutterwave($1,'1234',8000001,'NGN')",[charge.reference]),/does not match/);
-    await rows("select public.confirm_flutterwave($1,'1234',8000000,'NGN')",[charge.reference]);
-    await rows("select public.confirm_flutterwave($1,'1234',8000000,'NGN')",[charge.reference]);
+    const verified = (reference, transaction, amount, currency, source) => rows(
+      "select public.confirm_flutterwave($1,$2,$3,$4,$5) as result",
+      [reference,transaction,amount,currency,source],
+    ).then(([row]) => row.result);
+    assert.equal(await verified(charge.reference,"1234",7999999,"NGN","webhook"),"details_mismatch");
+    assert.equal(await verified(charge.reference,"1234",8000000,"USD","webhook"),"details_mismatch");
+    const outcomes = await Promise.all([
+      verified(charge.reference,"1234",8000000,"NGN","webhook"),
+      verified(charge.reference,"1234",8000000,"NGN","callback"),
+    ]);
+    assert.deepEqual(outcomes.sort(),["confirmed","duplicate"]);
+    assert.equal(await verified(charge.reference,"4321",8000000,"NGN","admin"),"reference_reused");
     await as("authenticated",student);
     assert.equal((await rows("select * from public.payment_receipts")).length,1);
     const [{status}] = await rows("select status from public.applications where id=$1",[first]);
@@ -91,6 +103,11 @@ test("migrations, owner isolation, offer limits, and payment reconciliation", as
     await as("authenticated",other);
     assert.equal((await rows("select * from public.enrollments")).length,0);
     assert.equal((await rows("select * from public.payment_receipts")).length,0);
+    const [expiredCheckout] = await rows("select * from public.begin_checkout($1)",[second]);
+    await as("service_role");
+    assert.equal(await verified(expiredCheckout.reference,"1234",8000000,"NGN","webhook"),"transaction_reused");
+    await db.exec("reset role");
+    await rows("update public.payments set checkout_expires_at=now()-interval '1 minute' where id=$1",[expiredCheckout.id]);
     await as("authenticated",finance);
     assert.equal((await rows("select * from public.finance_accounts()")).length,2);
     const [manual] = await rows("select public.record_manual_payment($1,'transfer',8000000,'TEST-BANK-REF') as id",[second]);
@@ -99,6 +116,29 @@ test("migrations, owner isolation, offer limits, and payment reconciliation", as
     await assert.rejects(rows("select public.record_manual_payment($1,'transfer',8000000,'TEST-BANK-REF')",[first]),/already in use/);
     const [{count: manualAudit}] = await rows("select count(*) from public.audit_logs where entity='payments' and entity_id=$1",[manual.id]);
     assert.equal(Number(manualAudit),1);
+    await as("service_role");
+    assert.equal(await verified(expiredCheckout.reference,"4321",8000000,"NGN","webhook"),"balance_review");
+    await as("authenticated",finance);
+    assert.equal(Number((await rows("select paid_kobo from public.finance_accounts() where id=$1",[second]))[0].paid_kobo),8000000);
+    assert.equal((await rows("select action from public.audit_logs where action='flutterwave_balance_review'")).length,1);
+
+    const enquiry = ["Example Visitor","visitor@example.test","Interior","Please send a quote.","test-source"];
+    const sendEnquiry = (values = enquiry) => rows(
+      "select public.record_enquiry($1,$2,$3,$4,$5) as id",values,
+    ).then(([row]) => row.id);
+    await as("anon");
+    await assert.rejects(sendEnquiry(),/permission denied/);
+    await as("service_role");
+    const contacts = await Promise.all([sendEnquiry(),sendEnquiry()]);
+    assert.equal(contacts[0],contacts[1]);
+    for (let n=1;n<5;n++) await sendEnquiry(enquiry.map((value,i) => i===2 ? `Topic ${n}` : value));
+    await assert.rejects(sendEnquiry(enquiry.map((value,i) => i===2 ? "Over the limit" : value)),/Too many recent enquiries/);
+    await rows("update public.contact_enquiries set notification_status='sent' where id=$1",[contacts[0]]);
+    await as("authenticated",root);
+    await rows("update public.contact_enquiries set resolved=true where id=$1",[contacts[0]]);
+    assert.deepEqual(await rows("select resolved,notification_status from public.contact_enquiries where id=$1",[contacts[0]]),
+      [{resolved:true,notification_status:"sent"}]);
+    assert.equal((await rows("select action from public.audit_logs where entity_id=$1",[contacts[0]])).length,3);
     await as("authenticated",other);
     assert.equal((await rows("select * from public.payment_receipts")).length,1);
 
@@ -137,8 +177,11 @@ test("migrations, owner isolation, offer limits, and payment reconciliation", as
     await rows(`update public.site_content set details=jsonb_build_object('price_kobo',15000000) where id=$1`,[service]);
     const [{id:draft}] = await rows(`insert into public.site_content(kind,slug,title,summary,body)
       values('article','test-draft','A draft update','Not published yet','Draft text') returning id`);
+    const [{id:project}] = await rows(`insert into public.site_content(kind,slug,title,details)
+      values('portfolio','test-project','A draft project','{"project_url":"https://example.com/project"}') returning id`);
     await as("anon");
     assert.deepEqual(await rows("select id from public.site_content where id=$1",[draft]),[]);
+    assert.deepEqual(await rows("select id from public.site_content where id=$1",[project]),[]);
     await assert.rejects(rows("select public.start_customer_thread(null,'A question')"),/permission denied/);
     await as("authenticated",student);
     await assert.rejects(rows("select public.start_customer_thread($1,'Unavailable')",[draft]),/unavailable/);
@@ -160,6 +203,7 @@ test("migrations, owner isolation, offer limits, and payment reconciliation", as
     await as("authenticated",root);
     await rows("insert into storage.objects(bucket_id,name) values('editorial-media','staff.webp')");
     await rows("update public.site_content set published=true where id=$1",[draft]);
+    await rows("update public.site_content set published=true where id=$1",[project]);
     await rows(`update public.site_content set details=jsonb_build_object('price_kobo',18000000),published=false where id=$1`,[service]);
     await rows("select public.reply_customer_thread($1,'We can help with that.')",[request]);
     await rows("select public.set_customer_thread_status($1,'in_review')",[request]);
@@ -174,6 +218,69 @@ test("migrations, owner isolation, offer limits, and payment reconciliation", as
     await assert.rejects(rows("select public.start_customer_thread($1,'This was unpublished')",[service]),/unavailable/);
     await as("anon");
     assert.equal((await rows("select id from public.site_content where id=$1",[draft])).length,1);
+    assert.equal((await rows("select id from public.site_content where id=$1",[project])).length,1);
+
+    const interiorKey = randomUUID();
+    const render = `${student}/${interiorKey}.jpg`;
+    await assert.rejects(rows("select public.submit_interior_review($1,'Example design',$2)",[interiorKey,render]),/permission denied/);
+    await as("authenticated",other);
+    await assert.rejects(rows("insert into storage.objects(bucket_id,name) values('interior-renders',$1)",[render]),/row-level security/);
+    await as("authenticated",student);
+    await rows("insert into storage.objects(bucket_id,name) values('interior-renders',$1)",[render]);
+    assert.equal((await rows("select name from storage.objects where name=$1",[render])).length,0);
+    const [{id: interiorThread}] = await rows("select public.submit_interior_review($1,'Example design',$2) id",[interiorKey,render]);
+    const [{id: retriedThread}] = await rows("select public.submit_interior_review($1,'Example design',$2) id",[interiorKey,render]);
+    assert.equal(interiorThread,retriedThread);
+    assert.equal((await rows("select id from public.customer_messages where thread_id=$1",[interiorThread])).length,1);
+    assert.equal((await rows("select name from storage.objects where name=$1",[render])).length,1);
+    await as("authenticated",other);
+    assert.equal((await rows("select name from storage.objects where name=$1",[render])).length,0);
+    await as("authenticated",root);
+    assert.equal((await rows("select name from storage.objects where name=$1",[render])).length,1);
+
+    const networkKey = randomUUID();
+    const networkPlan = { plan: { devices:[{id:1,kind:"v4",x:18,y:37}] }, prices:{v4:55000000} };
+    const submitNetwork = () => rows("select public.submit_network_review($1,$2,'Network budget for review',$3) as id",
+      [student,networkKey,networkPlan]);
+    await as("authenticated",student);
+    await assert.rejects(submitNetwork(),/permission denied/);
+    await as("service_role");
+    const [[network], [repeatedNetwork]] = await Promise.all([submitNetwork(),submitNetwork()]);
+    assert.equal(network.id,repeatedNetwork.id);
+    await as("authenticated",student);
+    assert.deepEqual(await rows("select network_plan from public.customer_messages where thread_id=$1",[network.id]),
+      [{network_plan:networkPlan}]);
+    await as("authenticated",other);
+    assert.deepEqual(await rows("select network_plan from public.customer_messages where thread_id=$1",[network.id]),[]);
+    await as("authenticated",root);
+    assert.equal((await rows("select network_plan from public.customer_messages where thread_id=$1",[network.id])).length,1);
+
+    const material = randomUUID(), materialPath = `${material}.pdf`;
+    await as("authenticated",other);
+    await assert.rejects(rows("insert into public.course_materials(id,course_id,title,download_name,object_path) values($1,$2,'Lecture notes','notes.pdf',$3)",
+      [material,course,materialPath]),/row-level security/);
+    await as("authenticated",root);
+    await rows("insert into public.course_materials(id,course_id,title,download_name,object_path) values($1,$2,'Lecture notes','notes.pdf',$3)",
+      [material,course,materialPath]);
+    await assert.rejects(rows("select public.set_course_material_visibility($1,true)",[material]),/Upload the file/);
+    await rows("insert into storage.objects(bucket_id,name) values('course-materials',$1)",[materialPath]);
+    await rows("select public.set_course_material_visibility($1,true)",[material]);
+    await rows("select public.set_course_material_visibility($1,true)",[material]);
+    await as("authenticated",student);
+    assert.equal((await rows("select id from public.course_materials where id=$1",[material])).length,1);
+    assert.equal((await rows("select name from storage.objects where bucket_id='course-materials' and name=$1",[materialPath])).length,1);
+    assert.equal((await rows("select id from public.notifications where title='New course material'")).length,1);
+    await as("authenticated",other);
+    assert.equal((await rows("select id from public.course_materials where id=$1",[material])).length,0);
+    assert.equal((await rows("select name from storage.objects where bucket_id='course-materials' and name=$1",[materialPath])).length,0);
+    await as("authenticated",root);
+    await rows("select public.set_course_material_visibility($1,false)",[material]);
+    await rows("insert into public.studio_equipment(kind,brand,model,radius_m) values('ap','Wavlink','Outdoor test',120)");
+    await rows("insert into public.studio_equipment(kind,brand,model,watts,surge_watts,voltage,active) values('inverter','Example','Hybrid',3000,6000,48,false)");
+    await as("authenticated",student);
+    assert.equal((await rows("select id from public.course_materials where id=$1",[material])).length,0);
+    await as("anon");
+    assert.deepEqual(await rows("select brand from public.studio_equipment"),[{brand:"Wavlink"}]);
 
     await db.exec("reset role");
     const [{public: documentsPublic}] = await rows("select public from storage.buckets where id='workspace-documents'");

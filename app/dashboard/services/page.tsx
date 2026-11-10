@@ -10,6 +10,7 @@ import { Empty, Notice, Textarea } from "@/components/ui";
 import { catalog } from "@/lib/catalog";
 import { money, servicePrice, type CustomerThread } from "@/lib/model";
 import { SOLAR_SERVICE } from "@/lib/solar";
+import { INTERIOR_PLANNER, INTERIOR_SERVICE } from "@/lib/interior";
 import { requireStudent } from "@/lib/supabase";
 
 export default async function ServicesWorkspace({ searchParams }: { searchParams: Promise<{ service?: string }> }) {
@@ -35,6 +36,7 @@ export default async function ServicesWorkspace({ searchParams }: { searchParams
       <p>{selected.summary}</p>
       <p><strong>{price === null ? "Quote on request" : money(price)}</strong></p>
       {selected.slug === SOLAR_SERVICE && <Link className="text-link" href={`/services/${SOLAR_SERVICE}#solar-estimator`}>Estimate your setup first <ArrowUpRight size={15} aria-hidden /></Link>}
+      {selected.slug === INTERIOR_SERVICE && <Link className="text-link" href={INTERIOR_PLANNER}>Create a room concept first <ArrowUpRight size={15} aria-hidden /></Link>}
       <ActionForm action={startConversation} submit="Send service request">
         <input type="hidden" name="service" value={selected.id} />
         <Textarea name="body" label="What do you need?" rows={5} maxLength={4000} required
@@ -54,6 +56,7 @@ export default async function ServicesWorkspace({ searchParams }: { searchParams
             <strong>{price === null ? "Quote on request" : money(price)}</strong>
             <Link className="text-link" href={`/dashboard/services?service=${item.slug}`}>Request service <ArrowUpRight size={15} aria-hidden /></Link>
             {item.slug === SOLAR_SERVICE && <Link className="text-link" href={`/services/${SOLAR_SERVICE}#solar-estimator`}>Open solar estimator <ArrowUpRight size={15} aria-hidden /></Link>}
+            {item.slug === INTERIOR_SERVICE && <Link className="text-link" href={INTERIOR_PLANNER}>Open 3D studio <ArrowUpRight size={15} aria-hidden /></Link>}
           </article>;
         })}</div>
       </section>

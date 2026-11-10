@@ -1,6 +1,7 @@
 "use server";
 
 import { createCipheriv, createHmac, randomBytes, randomUUID } from "node:crypto";
+import { isIP } from "node:net";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -8,9 +9,9 @@ import { after } from "next/server";
 import { z } from "zod";
 import { siteOrigin } from "@/lib/catalog";
 import { applicationSchema, couponCode, email, errorMessage, optText, safePath, text, toKobo, uuid, type FormState } from "@/lib/forms";
-import { sendMail } from "@/lib/mail";
+import { notifyContactEnquiry, sendMail } from "@/lib/mail";
 import { METHODS } from "@/lib/model";
-import { checkoutAvailable, initialiseCheckout, PaymentError } from "@/lib/payments";
+import { checkoutAvailable, checkoutLinkExpiry, initialiseCheckout, logFlutterwave, PaymentError } from "@/lib/payments";
 import { privilegedDb, requireStudent, serverDb } from "@/lib/supabase";
 
 const credentials = z.object({ email, password: z.string().min(8, "Use at least eight characters.").max(128) });
@@ -160,19 +161,29 @@ export async function startCheckout(_: FormState, form: FormData): Promise<FormS
   const { data, error } = await db.rpc("begin_checkout", { p_id: id.data, p_amount: amount })
     .single<{ id: string; reference: string; amount_kobo: number; checkout_url: string | null; created: boolean }>();
   if (error || !data) return { error: error?.code === "P0001" ? error.message : "Could not start checkout." };
-  if (data.checkout_url?.startsWith("https://checkout.flutterwave.com/")) redirect(data.checkout_url);
+  if (amount !== null && Number(data.amount_kobo) !== amount) {
+    return { error: "An online checkout is already open for a different amount. Complete it or wait for it to expire." };
+  }
+  const reservation = await db.from("payments").select("checkout_expires_at,checkout_url,status").eq("id",data.id).maybeSingle();
+  const expiresAt = checkoutLinkExpiry(reservation.data?.checkout_expires_at ?? "");
+  if (reservation.error || !Number.isFinite(expiresAt)) return { error: "Could not confirm the checkout window. Please try again." };
+  if (reservation.data?.status !== "pending") return { error: "This checkout is closed. Refresh the application to see your balance." };
+  if (Date.now() >= expiresAt) return { error: "The checkout link has expired. Allow up to 15 minutes for payment confirmation before trying again." };
+  if (reservation.data?.checkout_url?.startsWith("https://checkout.flutterwave.com/")) redirect(reservation.data.checkout_url);
   if (!data.created) return { error: "A checkout is being prepared. Refresh this page shortly. Contact the centre if it remains pending." };
   let link: string;
   try {
-    link = await initialiseCheckout({ reference: data.reference, amountKobo: data.amount_kobo,
+    link = await initialiseCheckout({ reference: data.reference, amountKobo: data.amount_kobo, expiresAt,
       email: user.email, name: application.full_name });
     const admin = privilegedDb();
     const saved = await admin?.from("payments").update({ checkout_url: link }).eq("id", data.id)
       .eq("status", "pending").select("id").maybeSingle();
     if (saved?.error || !saved?.data) throw new PaymentError("provider", "Checkout could not be recorded.");
   } catch (error) {
+    await logFlutterwave("checkout_unavailable", "checkout", data.reference);
     return { error: error instanceof PaymentError ? error.message : "The payment provider is temporarily unavailable. Contact the centre if needed." };
   }
+  await logFlutterwave("checkout_ready", "checkout", data.reference);
   redirect(link);
 }
 
@@ -185,10 +196,13 @@ export async function contactEnquiry(_: FormState, form: FormData): Promise<Form
   const secret = process.env.CONTACT_RATE_LIMIT_SECRET;
   if (!db || !secret) return { error: "The enquiry inbox is being configured. Call or WhatsApp the centre for assistance." };
   const h = await headers();
-  const ip = h.get("x-vercel-forwarded-for")?.split(",")[0] || h.get("x-real-ip") || h.get("x-forwarded-for")?.split(",")[0] || "local";
+  const ip = process.env.VERCEL === "1" ? h.get("x-vercel-forwarded-for")?.trim() ?? "" : "";
+  const source = isIP(ip) ? ip : "unproxied";
   const { full_name, email: address, topic, message } = parsed.data;
-  const { error } = await db.rpc("record_enquiry", { p_name: full_name, p_email: address, p_topic: topic,
-    p_message: message, p_hash: createHmac("sha256", secret).update(ip.trim()).digest("hex") });
-  if (error) return { error: error.code === "P0001" ? error.message : "Could not send the enquiry. Please try again." };
+  const { data: id, error } = await db.rpc("record_enquiry", { p_name: full_name, p_email: address, p_topic: topic,
+    p_message: message, p_hash: createHmac("sha256", secret).update(source).digest("hex") });
+  if (error || typeof id !== "string") return { error: error?.code === "P0001" ? error.message : "Could not send the enquiry. Please try again." };
+  after(() => notifyContactEnquiry(id).then(() => undefined));
+  revalidatePath("/admin/enquiries");
   return { success: "Your enquiry was received. The centre can reply to the email you provided." };
 }

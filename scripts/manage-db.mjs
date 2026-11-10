@@ -1,4 +1,5 @@
-import { readFile, readdir, writeFile } from "node:fs/promises";
+import { appendFile, readFile, readdir, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 
 async function readCredential() {
@@ -19,10 +20,10 @@ async function readCredential() {
 }
 
 const [command, ref, email] = process.argv.slice(2);
-if (!["list", "inspect", "apply", "connect", "bootstrap-admin", "upload-documents"].includes(command) ||
+if (!["list", "inspect", "apply", "connect", "connect-server", "bootstrap-admin", "upload-documents"].includes(command) ||
   (command !== "list" && !/^[a-z0-9]{20}$/.test(ref ?? "")) ||
   (command === "bootstrap-admin" && !/^[a-z0-9._+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(email ?? ""))) {
-  throw new Error("Usage: node scripts/manage-db.mjs list | inspect <project-ref> | apply <project-ref> | connect <project-ref> | upload-documents <project-ref> | bootstrap-admin <project-ref> <confirmed-email>");
+  throw new Error("Usage: node scripts/manage-db.mjs list | inspect <project-ref> | apply <project-ref> | connect <project-ref> | connect-server <project-ref> | upload-documents <project-ref> | bootstrap-admin <project-ref> <confirmed-email>");
 }
 const token = await readCredential();
 
@@ -52,6 +53,27 @@ if (command === "list") {
     `NEXT_PUBLIC_SITE_URL=http://localhost:3000\nNEXT_PUBLIC_SUPABASE_URL=https://${ref}.supabase.co\nNEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${publishable}\n`,
     { flag: "wx" });
   console.log("Wrote .env.local with the public project URL and publishable key.");
+} else if (command === "connect-server") {
+  const envFile = new URL("../.env.local", import.meta.url);
+  const env = await readFile(envFile, "utf8");
+  const expected = `NEXT_PUBLIC_SUPABASE_URL=https://${ref}.supabase.co`;
+  if (!env.split(/\r?\n/).includes(expected)) throw new Error("The local environment points to a different Supabase project.");
+  const assignments = [];
+  if (!/^SUPABASE_SECRET_KEY=/m.test(env)) {
+    const keys = await request(`/projects/${ref}/api-keys?reveal=true`);
+    const key = keys.find((item) => item.type === "secret" && item.api_key?.startsWith("sb_secret_"))?.api_key
+      ?? keys.find((item) => item.name === "service_role" && item.api_key?.split(".").length === 3)?.api_key;
+    if (!key || !/^[a-zA-Z0-9_.-]+$/.test(key)) throw new Error("No server key is available.");
+    assignments.push(`SUPABASE_SECRET_KEY=${key}`);
+  }
+  if (!/^CONTACT_RATE_LIMIT_SECRET=/m.test(env)) {
+    assignments.push(`CONTACT_RATE_LIMIT_SECRET=${randomBytes(32).toString("hex")}`);
+  }
+  if (assignments.length) await appendFile(envFile, `\n${assignments.join("\n")}\n`);
+  console.log("Local Supabase server and contact settings are present in the ignored .env.local file.");
+  console.log(await request(`/projects/${ref}/database/query/read-only`, {
+    query: "select enabled, secret_ciphertext is not null as merchant_key_saved, webhook_ciphertext is not null as webhook_hash_saved from public.flutterwave_settings",
+  }));
 } else if (command === "upload-documents") {
   const names = ["student-rules-and-regulations.pdf", "student-registration-form-print.pdf", "brand-identity-and-creative-guidelines.pdf"];
   const documents = await Promise.all(names.map(async (name) => {

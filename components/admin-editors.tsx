@@ -7,7 +7,10 @@ import { EditorialFields } from "./editorial-fields";
 import { Badge, Check, Field, Select, Textarea } from "./ui";
 import { detail, detailsList } from "@/lib/catalog";
 import { money, servicePrice, type Batch, type Content, type Course, type Discount, type Module } from "@/lib/model";
-import { SOLAR_RATES, SOLAR_SERVICE, solarPrices } from "@/lib/solar";
+import { SOLAR_RATES, SOLAR_SERVICE, solarAppliances, solarPrices } from "@/lib/solar";
+import { PortfolioMediaFields } from "./portfolio-media-fields";
+import { INTERIOR_RATES, INTERIOR_SERVICE, interiorPrices } from "@/lib/interior";
+import { NETWORK_RATES, NETWORK_SERVICE, networkPrices } from "@/lib/network";
 
 const naira = (kobo: number | null | undefined) => kobo == null ? "" : String(kobo / 100);
 const dateTime = (value: string | null | undefined) => value ? new Intl.DateTimeFormat("sv-SE", {
@@ -128,7 +131,7 @@ function DiscountEditor({ course, discount }: { course: string; discount?: Disco
 
 export const CONTENT_KINDS = {
   company: "Company information", service: "Service", announcement: "Announcement",
-  testimonial: "Testimonial", faq: "FAQ", promotion: "Campaign", article: "News article",
+  testimonial: "Testimonial", faq: "FAQ", promotion: "Campaign", article: "News article", portfolio: "Portfolio project",
 } as const;
 export type ContentKind = keyof typeof CONTENT_KINDS;
 
@@ -136,19 +139,24 @@ export function ContentEditor({ item, kind }: { item?: Content; kind: ContentKin
   const empty = { details: {} };
   const value = (key: string) => detail(item ?? empty,key);
   const isSolar = kind === "service" && item?.slug === SOLAR_SERVICE;
-  const prices = isSolar ? solarPrices(item.details.solar_prices) : null;
+  const isInterior = kind === "service" && item?.slug === INTERIOR_SERVICE;
+  const isNetwork = kind === "service" && item?.slug === NETWORK_SERVICE;
+  const estimator = isSolar ? { label: "Solar estimator prices", key: "solar", rates: SOLAR_RATES, prices: solarPrices(item.details.solar_prices) }
+    : isInterior ? { label: "Interior studio prices", key: "interior", rates: INTERIOR_RATES, prices: interiorPrices(item.details.interior_prices) }
+    : isNetwork ? { label: "Network Studio prices", key: "network", rates: NETWORK_RATES, prices: networkPrices(item.details.network_prices) } : null;
   return <section className="panel"><h2>{CONTENT_KINDS[kind]}</h2>
     <ActionForm action={saveContent} submit={item ? "Save content" : "Create content"}>
       <input type="hidden" name="id" value={item?.id ?? ""} /><input type="hidden" name="kind" value={kind} />
       <div className="form-grid">
         <Field label="Title" name="title" defaultValue={item?.title} maxLength={160} required />
-        <Field label="URL slug" name="slug" defaultValue={item?.slug ?? (kind === "company" ? "profile" : "")} pattern="[a-z0-9]+(-[a-z0-9]+)*" readOnly={isSolar} required />
+        <Field label="URL slug" name="slug" defaultValue={item?.slug ?? (kind === "company" ? "profile" : "")} pattern="[a-z0-9]+(-[a-z0-9]+)*" readOnly={Boolean(estimator)} required />
       </div>
       <Textarea label={kind === "faq" ? "Answer" : "Summary"} name="summary" defaultValue={item?.summary} maxLength={600} required={kind==="article"} />
       {kind === "article" ? <>
         <Field label="Author byline" name="author" defaultValue={value("author") || "Obsidian Research"} maxLength={100} />
         <EditorialFields cover={value("cover_url")} alt={value("cover_alt")} initialBody={item?.body ?? ""} />
       </> : <Textarea label="Body" name="body" defaultValue={item?.body} maxLength={8000} rows={4} />}
+      {kind === "portfolio" && <PortfolioMediaFields image={value("image_url")} video={value("video_url")} project={value("project_url")} />}
       {kind === "company" && <>
         <Field label="Official tagline" name="tagline" defaultValue={value("tagline")} maxLength={160} />
         <div className="form-grid">
@@ -168,14 +176,21 @@ export function ContentEditor({ item, kind }: { item?: Content; kind: ContentKin
         <Textarea label="Offerings" name="offerings" defaultValue={item ? detailsList(item,"offerings").join("\n") : ""} hint="One per line." />
         <Textarea label="Benefits" name="benefits" defaultValue={item ? detailsList(item,"benefits").join("\n") : ""} hint="One per line." />
       </div>}
-      {prices && <fieldset className="fieldset" id="solar-prices">
-        <legend>Solar estimator prices</legend>
-        <input type="hidden" name="solar_pricing" value="on" />
+      {estimator && <fieldset className="fieldset" id={`${estimator.key}-prices`}>
+        <legend>{estimator.label}</legend>
+        <input type="hidden" name={`${estimator.key}_pricing`} value="on" />
         <p className="small muted">Enter a price per unit in naira. The public estimator uses these amounts to calculate a budget for review.</p>
-        <div className="form-grid">{SOLAR_RATES.map(({ key, label }) => <Field key={key} label={label}
-          name={`solar_price_${key}`} type="number" min={0} max={50_000_000} step="0.01"
-          inputMode="decimal" defaultValue={naira(prices[key])} required />)}</div>
+        {isNetwork && <p className="small muted">Leave a rate blank to show Quote required. A wireless bridge uses two radios.</p>}
+        <div className="form-grid">{estimator.rates.map(({ key, label }) => <Field key={key} label={label}
+          name={`${estimator.key}_price_${key}`} type="number" min={0} max={50_000_000} step="0.01"
+          inputMode="decimal" defaultValue={naira((estimator.prices as Record<string, number | null>)[key])} required={!isNetwork} />)}</div>
       </fieldset>}
+      {isSolar && <details className="fieldset"><summary>Appliance catalogue wattages</summary>
+        <input type="hidden" name="solar_ratings" value="on" />
+        <p className="small muted">Set the typical running watts shown when customers select an appliance.</p>
+        <div className="form-grid">{solarAppliances(item.details.solar_appliances).map((appliance) => <Field key={appliance.id}
+          label={`${appliance.name} (W)`} name={`solar_watts_${appliance.id}`} type="number" min={1} max={25000} step={1} defaultValue={appliance.watts} />)}</div>
+      </details>}
       {(kind === "announcement" || kind === "promotion") && <Field label="Link to a site page" name="href" placeholder="/training" defaultValue={value("href")} />}
       {kind === "testimonial" && <Check name="approved_testimonial" defaultChecked={item?.details.approved === true}>I verified the testimonial and have approval to publish it.</Check>}
       <Field label="Display order" name="position" type="number" min={0} max={1000} defaultValue={item?.position ?? 0} required />

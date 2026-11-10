@@ -1,0 +1,10 @@
+.env*
+.git/
+.next/
+.openai/
+.vercel/
+documents/
+node_modules/
+supabase/.temp/
+*.log
+*.tsbuildinfo

@@ -25,6 +25,8 @@ export default async function ApplicationPage({ params, searchParams }: {
   const paid = payments.filter((p) => p.status === "confirmed").reduce((sum,p) => sum+p.amount_kobo,0);
   const due = Math.max(0,a.payable_kobo-paid);
   const canPay = ["approved","awaiting_payment"].includes(a.status) && due > 0;
+  const reserved = payments.find((payment) => payment.method === "flutterwave" && payment.status === "pending" &&
+    Date.parse(payment.checkout_expires_at ?? "") > Date.now());
   const instructions = canPay ? (await db.from("payment_settings").select("cash_instructions,transfer_instructions").maybeSingle()).data : null;
   const online = await checkoutAvailable();
   return <>
@@ -35,6 +37,7 @@ export default async function ApplicationPage({ params, searchParams }: {
     {query.submitted && <Notice tone="success">Application received. Keep your reference and check this page for updates.</Notice>}
     {verified && <Notice tone="success">Your payment was verified by Flutterwave.</Notice>}
     {query.payment === "pending" && <Notice>Payment has not been confirmed yet. Refresh this page after the provider processes it.</Notice>}
+    {query.payment === "failed" && <Notice tone="error">Flutterwave could not complete this payment attempt. Check the payment section before trying again.</Notice>}
     {query.payment === "review" && <Notice tone="error">Finance needs to review this transaction. Contact the centre with your reference.</Notice>}
     {transactions.error && <Notice tone="error">Transaction history could not be loaded. Refresh before making a payment.</Notice>}
     <div className="split split-even">
@@ -61,7 +64,8 @@ export default async function ApplicationPage({ params, searchParams }: {
             : !transactions.error && <ActionForm action={startCheckout} submit="Continue to Flutterwave">
               <input name="id" type="hidden" value={a.id} />
               {a.installment_min_kobo && <Field label="Amount in naira (optional)" name="amount" inputMode="decimal" maxLength={11}
-                hint={`Leave blank for the full balance. Minimum installment ${money(a.installment_min_kobo)}.`} />}
+                hint={reserved ? `An existing checkout is reserved for ${money(reserved.amount_kobo)}.`
+                  : `Leave blank for the full balance. Minimum installment ${money(a.installment_min_kobo)}.`} />}
             </ActionForm>)}
         </>}
         <Link href="/policies#refund" className="text-link">Payment and refund policy</Link>

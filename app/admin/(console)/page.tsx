@@ -13,21 +13,23 @@ export default async function AdminOverview() {
     const q = db.from(table).select("*",{count:"exact",head:true});
     return status ? q.in("status",status) : q;
   };
-  const [total,pending,approved,enrolled,active,upcoming,accounts,recent] = await Promise.all([
+  const [total,pending,approved,enrolled,active,upcoming,accounts,recent,inbox,enquiries] = await Promise.all([
     ops ? count("applications") : null,
     ops ? count("applications",["submitted","under_review"]) : null,
-    ops ? count("applications",["approved","awaiting_payment","payment_confirmed","enrolled"]) : null,
+    ops ? count("applications",["approved","awaiting_payment","payment_confirmed"]) : null,
     ops ? count("students") : null,
     db.from("courses").select("id",{count:"exact",head:true}).eq("archived",false).eq("published",true).eq("phase","running"),
-    db.from("courses").select("id,title,starts_at,phase").eq("archived",false).eq("published",true)
+    db.from("courses").select("id,title,starts_at,phase",{count:"exact"}).eq("archived",false).eq("published",true)
       .in("phase",["upcoming","starting_soon"]).order("starts_at",{nullsFirst:false}).limit(8),
     finance ? financeAccounts(db) : null,
     finance ? db.from("payments").select("*").order("created_at",{ascending:false}).limit(8) : null,
+    ops ? count("customer_threads",["open","in_review"]) : null,
+    CONTENT.includes(role) ? db.from("contact_enquiries").select("id",{count:"exact",head:true}).eq("resolved",false) : null,
   ]);
   const metrics: [string, string|number][] = [];
   if (ops) metrics.push(["Total applications",total?.count ?? 0],["Pending review",pending?.count ?? 0],
-    ["Approved applications",approved?.count ?? 0],["Enrolled students",enrolled?.count ?? 0]);
-  metrics.push(["Active programs",active.count ?? 0],["Upcoming programs",upcoming.data?.length ?? 0]);
+    ["Approval & payment",approved?.count ?? 0],["Enrolled students",enrolled?.count ?? 0]);
+  metrics.push(["Active programs",active.count ?? 0],["Upcoming programs",upcoming.count ?? 0]);
   if (accounts) metrics.push(
     ["Confirmed payments",money(accounts.items.reduce((sum,a) => sum+a.paid_kobo,0))],
     ["Outstanding balances",money(accounts.items.reduce((sum,a) => sum+Math.max(0,a.payable_kobo-a.paid_kobo),0))],
@@ -41,6 +43,12 @@ export default async function AdminOverview() {
     <PortalTitle title="Management overview" action={ops ? <ButtonLink href="/admin/applications">Review applications</ButtonLink>
       : finance ? <ButtonLink href="/admin/finance">Open finance</ButtonLink> : undefined}>Training operations and payment activity.</PortalTitle>
     {(total?.error || active.error || upcoming.error || accounts?.error || recent?.error) && <Notice tone="error">Some metrics could not be loaded.</Notice>}
+    {(ops || CONTENT.includes(role)) && <section className="panel stack"><h2>Work queue</h2><div className="workspace-shortcuts">
+      {ops && <><Link className="workspace-shortcut" href="/admin/inbox"><span><strong>Customer inbox</strong><small>{inbox?.error ? "Count unavailable" : `${inbox?.count ?? 0} open or under review`}</small></span></Link>
+        <Link className="workspace-shortcut" href="/admin/materials"><span><strong>Course materials</strong><small>Upload files for enrolled students</small></span></Link></>}
+      {CONTENT.includes(role) && <><Link className="workspace-shortcut" href="/admin/enquiries"><span><strong>Contact enquiries</strong><small>{enquiries?.error ? "Count unavailable" : `${enquiries?.count ?? 0} unresolved`}</small></span></Link>
+        <Link className="workspace-shortcut" href="/admin/equipment"><span><strong>Studio equipment</strong><small>Manage models and quote prices</small></span></Link></>}
+    </div></section>}
     <Metrics items={metrics} />
     <div className="split split-even">
       {ops && <section className="panel"><h2>Application pipeline</h2><div className="bar-chart">

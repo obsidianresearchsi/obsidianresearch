@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowUpRight, MessageSquare } from "lucide-react";
+import { ArrowUpRight, Image, MessageSquare } from "lucide-react";
 import { sendConversationReply } from "@/app/dashboard/conversation-actions";
 import { calendar, money, THREAD_LABELS, type CustomerMessage, type CustomerThread } from "@/lib/model";
 import { ActionForm } from "./action-form";
@@ -32,6 +32,13 @@ export function Conversation({ thread, messages, staff = false, earlier, olderHr
           dateStyle:"medium",timeStyle:"short",timeZone:"Africa/Lagos",
         }).format(new Date(item.created_at))}</small>
         <p>{item.body}</p>
+        {item.attachment_path && <a className="chat-render" href={`/api/interior-renders/${item.id}`} target="_blank" rel="noopener noreferrer">
+          <img src={`/api/interior-renders/${item.id}`} alt="Customer’s interior room render" loading="lazy" />
+          <span><Image size={16} aria-hidden /> Open room render <ArrowUpRight size={15} aria-hidden /></span>
+        </a>}
+        {Boolean(item.network_plan) && <Link className="text-link" href={`/services/advanced-networking?review=${item.id}#network-studio`}>
+          Open network design <ArrowUpRight size={15} aria-hidden />
+        </Link>}
       </li>;
     })}</ol>
     {!historical && (active ? <ActionForm action={sendConversationReply} submit="Send message" tone="dark" clearAfterSend>
