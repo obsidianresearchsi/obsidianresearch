@@ -11,7 +11,7 @@ import { siteOrigin } from "@/lib/catalog";
 import { applicationSchema, couponCode, email, errorMessage, optText, safePath, text, toKobo, uuid, type FormState } from "@/lib/forms";
 import { notifyContactEnquiry, sendMail } from "@/lib/mail";
 import { METHODS } from "@/lib/model";
-import { checkoutAvailable, checkoutLinkExpiry, initialiseCheckout, logFlutterwave, PaymentError } from "@/lib/payments";
+import { checkoutAvailable, checkoutLinkExpiry, initialiseCheckout, logFlutterwave, PaymentError, paymentSiteOrigin } from "@/lib/payments";
 import { privilegedDb, requireStudent, serverDb } from "@/lib/supabase";
 
 const credentials = z.object({ email, password: z.string().min(8, "Use at least eight characters.").max(128) });
@@ -122,6 +122,13 @@ export async function submitApplication(_: FormState, form: FormData): Promise<F
   const recipient = user.email;
   after(() => sendMail(recipient, "Obsidian Research application received",
     `We received your application for ${course.title}. Your reference is ${data.reference}. View your progress at ${siteOrigin()}/dashboard.`));
+  if (p.payment_method === "flutterwave" && data.payable_kobo > 0) {
+    const path = `/dashboard/applications/${data.id}?submitted=1`;
+    if (!await checkoutAvailable()) redirect(path);
+    const checkout = await prepareCheckout(db, user.id, recipient, data.id, null);
+    if ("url" in checkout) redirect(checkout.url);
+    redirect(`${path}&payment=checkout_retry`);
+  }
   redirect(`/dashboard/applications/${data.id}?submitted=1`);
 }
 
@@ -155,10 +162,17 @@ export async function startCheckout(_: FormState, form: FormData): Promise<FormS
   const amountText = raw(form, "amount");
   const amount = amountText ? toKobo(amountText) : null;
   if (!id.success || (amountText && amount === null) || !user.email) return { error: "Enter a valid payment amount." };
+  const checkout = await prepareCheckout(db, user.id, user.email, id.data, amount);
+  if ("url" in checkout) redirect(checkout.url);
+  return checkout;
+}
+
+async function prepareCheckout(db: Awaited<ReturnType<typeof requireStudent>>["db"], userId: string,
+  email: string, id: string, amount: number | null): Promise<{ url: string } | { error: string }> {
   const { data: application } = await db.from("applications").select("full_name")
-    .eq("id", id.data).eq("user_id", user.id).maybeSingle();
+    .eq("id", id).eq("user_id", userId).maybeSingle();
   if (!application) return { error: "Application not found." };
-  const { data, error } = await db.rpc("begin_checkout", { p_id: id.data, p_amount: amount })
+  const { data, error } = await db.rpc("begin_checkout", { p_id: id, p_amount: amount })
     .single<{ id: string; reference: string; amount_kobo: number; checkout_url: string | null; created: boolean }>();
   if (error || !data) return { error: error?.code === "P0001" ? error.message : "Could not start checkout." };
   if (amount !== null && Number(data.amount_kobo) !== amount) {
@@ -169,12 +183,13 @@ export async function startCheckout(_: FormState, form: FormData): Promise<FormS
   if (reservation.error || !Number.isFinite(expiresAt)) return { error: "Could not confirm the checkout window. Please try again." };
   if (reservation.data?.status !== "pending") return { error: "This checkout is closed. Refresh the application to see your balance." };
   if (Date.now() >= expiresAt) return { error: "The checkout link has expired. Allow up to 15 minutes for payment confirmation before trying again." };
-  if (reservation.data?.checkout_url?.startsWith("https://checkout.flutterwave.com/")) redirect(reservation.data.checkout_url);
+  if (reservation.data?.checkout_url?.startsWith("https://checkout.flutterwave.com/")) return { url: reservation.data.checkout_url };
   if (!data.created) return { error: "A checkout is being prepared. Refresh this page shortly. Contact the centre if it remains pending." };
   let link: string;
   try {
+    const returnOrigin = paymentSiteOrigin((await headers()).get("host"));
     link = await initialiseCheckout({ reference: data.reference, amountKobo: data.amount_kobo, expiresAt,
-      email: user.email, name: application.full_name });
+      email, name: application.full_name, returnOrigin });
     const admin = privilegedDb();
     const saved = await admin?.from("payments").update({ checkout_url: link }).eq("id", data.id)
       .eq("status", "pending").select("id").maybeSingle();
@@ -184,7 +199,7 @@ export async function startCheckout(_: FormState, form: FormData): Promise<FormS
     return { error: error instanceof PaymentError ? error.message : "The payment provider is temporarily unavailable. Contact the centre if needed." };
   }
   await logFlutterwave("checkout_ready", "checkout", data.reference);
-  redirect(link);
+  return { url: link };
 }
 
 export async function contactEnquiry(_: FormState, form: FormData): Promise<FormState> {

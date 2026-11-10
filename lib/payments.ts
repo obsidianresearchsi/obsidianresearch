@@ -1,14 +1,18 @@
 import "server-only";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
-import { privilegedDb } from "./supabase";
 import { siteOrigin } from "./catalog";
+import { privilegedDb } from "./supabase";
 import { toKobo } from "./forms";
 import { flutterwaveConfiguration } from "./flutterwave-settings";
 
 export async function checkoutAvailable() {
   const settings = await flutterwaveConfiguration();
   return Boolean(settings?.enabled && settings.secret && settings.webhook);
+}
+
+export function paymentSiteOrigin(host: string | null) {
+  return host === "www.obsidianresearch.si" || host === "obsidianresearch.si" ? `https://${host}` : siteOrigin();
 }
 
 export class PaymentError extends Error {
@@ -38,7 +42,9 @@ export function checkoutLinkExpiry(reservedUntil: string) {
   return Date.parse(reservedUntil) - 15 * 60_000;
 }
 
-export async function initialiseCheckout(input: { reference: string; amountKobo: number; email: string; name: string; expiresAt: number }) {
+export async function initialiseCheckout(input: {
+  reference: string; amountKobo: number; email: string; name: string; expiresAt: number; returnOrigin: string;
+}) {
   const settings = await flutterwaveConfiguration();
   const secret = settings?.secret;
   if (!settings?.enabled || !secret || !settings.webhook) throw new PaymentError("configuration", "Online checkout is being configured.");
@@ -47,7 +53,7 @@ export async function initialiseCheckout(input: { reference: string; amountKobo:
     await request("/payments", {
       tx_ref: input.reference, amount, currency: "NGN",
       link_expiration: new Date(input.expiresAt).toISOString(),
-      redirect_url: `${siteOrigin()}/api/payments/callback`,
+      redirect_url: `${input.returnOrigin}/api/payments/callback`,
       customer: { email: input.email, name: input.name },
       configurations: { session_duration: 30, max_retry_attempt: 3 },
       customizations: { title: "Obsidian Research", description: "Training registration payment" },

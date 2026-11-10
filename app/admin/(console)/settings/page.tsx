@@ -1,15 +1,16 @@
 import { CreditCard } from "lucide-react";
+import { headers } from "next/headers";
 import { saveFlutterwaveSettings } from "@/app/admin/payment-settings-actions";
 import { ActionForm } from "@/components/action-form";
 import { PortalTitle } from "@/components/portal";
 import { Badge, Check, Field, Notice } from "@/components/ui";
-import { siteOrigin } from "@/lib/catalog";
 import { canEncryptPayments, flutterwaveConfiguration, storedFlutterwave } from "@/lib/flutterwave-settings";
+import { paymentSiteOrigin } from "@/lib/payments";
 import { requireStaff } from "@/lib/supabase";
 
 export default async function Settings() {
   await requireStaff(["super_admin"]);
-  const [saved, configuration] = await Promise.all([storedFlutterwave(),flutterwaveConfiguration()]);
+  const [saved, configuration, requestHeaders] = await Promise.all([storedFlutterwave(),flutterwaveConfiguration(),headers()]);
   const configured = Boolean(configuration?.secret && configuration.webhook);
   const encryption = canEncryptPayments();
   return <>
@@ -20,7 +21,7 @@ export default async function Settings() {
           {!configured ? "Setup required" : saved?.enabled ? "Checkout enabled" : "Checkout paused"}
         </Badge></div>
       <p>Use this URL when configuring webhooks in your Flutterwave merchant account.</p>
-      <code className="settings-endpoint">{siteOrigin()}/api/payments/webhook</code>
+      <code className="settings-endpoint">{paymentSiteOrigin(requestHeaders.get("host"))}/api/payments/webhook</code>
       {!saved ? <Notice>Connect the server to Supabase with its server key to manage payment settings here.</Notice> :
         <ActionForm action={saveFlutterwaveSettings} submit="Save settings" clearAfterSend>
           {!encryption && <Notice>Set the server payment encryption key to save credentials here.</Notice>}

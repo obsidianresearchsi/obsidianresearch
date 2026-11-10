@@ -24,7 +24,7 @@ export default async function Policies() {
       <li>Follow the written payment arrangement. Discounts apply according to their published eligibility and limits.</li>
     </ul></section>
     <section className="panel prose" id="terms"><h2>Training terms</h2>
-      <p>Submitting an application records your request for a place. The centre confirms the program, training dates, fee, eligible discounts and any due dates before taking payment. Follow updates and keep your application reference.</p>
+      <p>Submitting an application records your request for a place and calculates the registration fee with any eligible discount. If you choose Flutterwave, you can pay that amount while the centre reviews your application. Follow updates about your place and training dates and keep your application reference.</p>
       <p>Request a change of batch in writing. Approval depends on availability and circumstances. Missing a session does not automatically give a right to a refund or a free replacement session.</p>
       <p>Serious breaches may result in suspension or dismissal after notice and a fair opportunity to respond, subject to applicable law.</p>
       <p>Forex training is educational and does not constitute investment advice or guarantee profits, trading success, employment or financial returns. Networking training does not guarantee a job, certification or specific career result unless agreed in writing.</p>

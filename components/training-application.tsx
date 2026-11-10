@@ -7,6 +7,7 @@ import { RegistrationCountdown } from "@/components/registration-clock";
 import { ButtonLink, Check, DataList, Field, Intro, Notice, Select, Textarea } from "@/components/ui";
 import { courseBySlug } from "@/lib/catalog";
 import { courseState, METHOD_LABELS, METHODS, money, offerText } from "@/lib/model";
+import { checkoutAvailable } from "@/lib/payments";
 import { requireStudent } from "@/lib/supabase";
 
 export async function TrainingApplication({ slug, workspace = false }: { slug: string; workspace?: boolean }) {
@@ -21,6 +22,7 @@ export async function TrainingApplication({ slug, workspace = false }: { slug: s
   if (!state.open) return <><Intro label="Application" title={state.spots === 0 ? "This class is fully booked" : "Registration is closed"} />
     <div className={workspace ? "panel" : "wrap section-compact"}><ButtonLink href={workspace ? "/dashboard/apply" : "/training"}>Browse training</ButtonLink></div></>;
   const name = typeof user.user_metadata.full_name === "string" ? user.user_metadata.full_name : "";
+  const online = await checkoutAvailable();
   return <><Intro label="Obsidian Academy / Online application" title="Apply for training">{course.title}</Intro>
     <section className={workspace ? "workspace-application" : "section-compact"}><div className={workspace ? "split" : "wrap split"}>
       <div className="registration-application">
@@ -43,9 +45,14 @@ export async function TrainingApplication({ slug, workspace = false }: { slug: s
             <Select label="Preferred batch" name="preferred_batch_id"><option value="">No preference / to be assigned</option>
               {batches.map((batch) => <option key={batch.id} value={batch.id}>{batch.name}</option>)}</Select>
           </div>
-          <Select label="Preferred payment method" name="payment_method" required>
-            {METHODS.map((method) => <option key={method} value={method}>{METHOD_LABELS[method]}</option>)}
+          <Select label="Preferred payment method" name="payment_method" required defaultValue={online ? "flutterwave" : "cash"}
+            aria-describedby="application-payment-timing">
+            {METHODS.map((method) => <option key={method} value={method} disabled={method === "flutterwave" && !online}>
+              {METHOD_LABELS[method]}{method === "flutterwave" && !online ? " (unavailable)" : ""}</option>)}
           </Select>
+          <p id="application-payment-timing" className="small muted">{online
+            ? "Flutterwave opens its secure checkout after you submit. Cash and bank transfer instructions follow approval."
+            : "Flutterwave is temporarily unavailable. You can apply with cash or bank transfer."}</p>
           <CouponEntry course={course.id} />
           <Textarea label="Additional information (optional)" name="additional_info" maxLength={1200} rows={3} />
           {course.identity_requested && <fieldset className="fieldset"><legend>Optional identity verification</legend>
@@ -64,7 +71,8 @@ export async function TrainingApplication({ slug, workspace = false }: { slug: s
       </div>
       <aside className="panel stack"><h2>Registration summary</h2><DataList items={[
         ["Program", course.title], ["Registration fee", money(course.fee_kobo)],
-        ["Offer", offer ? offerText(offer) : "Standard registration"], ["Payment due", "After approval"],
-      ]} /><Notice>Your application reference and confirmed amount will appear in your dashboard.</Notice></aside>
+        ["Offer", offer ? offerText(offer) : "Standard registration"],
+        ["Payment timing", online ? "Flutterwave at submission. Cash or transfer after approval." : "Cash or transfer after approval."],
+      ]} /><Notice>Your dashboard tracks your registration fee, payments and application review.</Notice></aside>
     </div></section></>;
 }
